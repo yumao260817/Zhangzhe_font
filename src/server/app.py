@@ -1,0 +1,357 @@
+import sqlite3
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Header
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+
+from .. import store
+from ..gb2312 import level1_chars
+from ..paths import CONFIG_FILE, DB_FILE, QUEUE, PUZZLE_PIECES, ROOT
+from .. import stage_puzzle as puzzle
+from .. import auth
+
+
+def _load_config(path: Path | None) -> dict:
+    if path is None or not path.exists():
+        return {}
+    try:
+        import yaml
+
+        return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except ImportError:
+        return {}
+
+
+def _admin_token(cfg: dict) -> str:
+    server = cfg.get("server", {})
+    if isinstance(server, dict) and server.get("admin_token"):
+        return server["admin_token"]
+    return cfg.get("admin_token") or "admin"
+
+
+def _check_admin_token(token: str, cfg: dict) -> bool:
+    return token == _admin_token(cfg)
+
+
+def _bearer(authorization: str | None) -> str | None:
+    if not authorization:
+        return None
+    if authorization.startswith("Bearer "):
+        return authorization[7:].strip()
+    return None
+
+
+def _admin_ok(token: str, authorization: str | None, cfg: dict) -> bool:
+    """兼容两种管理员凭证：旧 admin_token 口令 或 已登录的管理员账号"""
+    if token and _check_admin_token(token, cfg):
+        return True
+    user = auth.user_by_token(_bearer(authorization))
+    return auth.is_admin(user)
+
+
+def make_app(config: str | None = None) -> FastAPI:
+    cfg_path = Path(config) if config else CONFIG_FILE
+    cfg = _load_config(cfg_path)
+
+    app = FastAPI(title="zhangzhe-font 拼字工作台")
+
+    @app.get("/health")
+    def health():
+        return {"ok": True}
+
+    @app.get("/api/charset")
+    def charset():
+        return {"level1_total": len(level1_chars())}
+
+    @app.get("/api/status")
+    def status():
+        conn = store.connect()
+        rows = conn.execute(
+            "SELECT stage, status, COUNT(*) AS n FROM glyphs GROUP BY stage, status ORDER BY stage, status"
+        ).fetchall()
+        conn.close()
+        return [{"stage": r["stage"], "status": r["status"], "count": r["n"]} for r in rows]
+
+    @app.get("/api/queue")
+    def queue(limit: int = 50, stage: str = "pending"):
+        conn = store.connect()
+        rows = conn.execute(
+            "SELECT char, stage, status, attempts, scores FROM glyphs "
+            "WHERE stage = ? AND status = 'todo' LIMIT ?",
+            (stage, limit),
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+
+    # ---------------- 用户 / 会话 ----------------
+
+    @app.get("/api/auth/captcha")
+    def captcha():
+        return auth.new_captcha()
+
+    @app.post("/api/auth/register")
+    async def register(
+        email: str = Form(...),
+        password: str = Form(...),
+        name: str = Form(""),
+        captcha_id: str = Form(""),
+        captcha_answer: str = Form(""),
+    ):
+        if not auth.check_captcha(captcha_id, captcha_answer):
+            raise HTTPException(status_code=400, detail="验证码错误或已过期，请刷新验证码")
+        ok, msg, user = auth.register(email, password, name, cfg)
+        if not ok:
+            raise HTTPException(status_code=400, detail=msg)
+        return {"ok": True, "message": msg, "user": user}
+
+    @app.post("/api/auth/login")
+    async def login(email: str = Form(...), password: str = Form(...)):
+        ok, msg, data = auth.login(email, password)
+        if not ok:
+            raise HTTPException(status_code=401, detail=msg)
+        return {"ok": True, "message": msg, **data}
+
+    @app.post("/api/auth/logout")
+    async def logout(authorization: str | None = Header(None)):
+        auth.logout(_bearer(authorization))
+        return {"ok": True}
+
+    @app.get("/api/auth/me")
+    def auth_me(authorization: str | None = Header(None)):
+        user = auth.user_by_token(_bearer(authorization))
+        if not user:
+            raise HTTPException(status_code=401, detail="未登录")
+        return {"user": user}
+
+    @app.get("/api/auth/role")
+    def auth_role(email: str = ""):
+        """查询某邮箱是否为配置的管理员邮箱（注册前可用）"""
+        return {"is_admin": email.strip().lower() in auth.admin_emails(cfg)}
+
+    # ---------------- 拼字工作台 ----------------
+
+    @app.post("/api/pieces")
+    async def upload_piece(file: UploadFile = File(...)):
+        data = await file.read()
+        if not data:
+            raise HTTPException(status_code=400, detail="空文件")
+        try:
+            return puzzle.save_piece(data)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"不是有效 PNG: {e}")
+
+    @app.get("/api/pieces/{pid}/img")
+    def piece_img(pid: str):
+        fp = PUZZLE_PIECES / f"{pid}.png"
+        if not fp.exists():
+            raise HTTPException(status_code=404, detail="部件不存在")
+        return FileResponse(str(fp), media_type="image/png")
+
+    @app.get("/api/char/{char}")
+    def char_info(char: str, authorization: str | None = Header(None)):
+        if char not in level1_chars():
+            raise HTTPException(status_code=404, detail="目标字不在 GB2312 一级字集")
+        from ..paths import PROCESSED, STDSRC
+
+        admin = auth.is_admin(auth.user_by_token(_bearer(authorization)))
+        return {
+            "char": char,
+            "handwritten": (PROCESSED / f"{char}.png").exists(),
+            "std": (STDSRC / f"{char}.png").exists(),
+            "approved": puzzle.list_candidates(char, "approved"),
+            "pending": puzzle.list_candidates(char, "pending") if admin else [],
+        }
+
+    @app.get("/api/std/{char}/img")
+    def std_img(char: str):
+        from ..paths import STDSRC
+
+        fp = STDSRC / f"{char}.png"
+        if not fp.exists():
+            raise HTTPException(status_code=404, detail="标准字形不存在")
+        return FileResponse(str(fp), media_type="image/png")
+
+    @app.get("/api/hand/{char}/img")
+    def hand_img(char: str):
+        from ..paths import PROCESSED
+
+        fp = PROCESSED / f"{char}.png"
+        if not fp.exists():
+            raise HTTPException(status_code=404, detail="手写原迹不存在")
+        return FileResponse(str(fp), media_type="image/png")
+
+    @app.post("/api/char/{char}/submit")
+    async def submit(
+        char: str,
+        author: str = Form(...),
+        note: str = Form(""),
+        pieces: str = Form(...),
+        file: UploadFile | None = File(None),
+        authorization: str | None = Header(None),
+    ):
+        user = auth.user_by_token(_bearer(authorization))
+        if not user:
+            raise HTTPException(status_code=401, detail="请先登录")
+        if char not in level1_chars():
+            raise HTTPException(status_code=404, detail="目标字不在 GB2312 一级字集")
+        try:
+            import json as _json
+
+            layers = _json.loads(pieces)
+            if not isinstance(layers, list) or len(layers) == 0:
+                raise ValueError("至少需要一个图层")
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"图层数据无效: {e}")
+        png_data = None
+        if file is not None:
+            png_data = await file.read()
+            if not png_data:
+                raise HTTPException(status_code=400, detail="PNG 文件为空")
+        try:
+            return puzzle.save_candidate(char, layers, author=author, note=note, png_data=png_data)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    @app.get("/api/char/{char}/candidates")
+    def char_candidates(
+        char: str, status: str | None = None, token: str = "", authorization: str | None = Header(None)
+    ):
+        """公开只给 approved；管理员给全部"""
+        if _admin_ok(token, authorization, cfg):
+            return puzzle.list_candidates(char, status)
+        return puzzle.list_candidates(char, "approved")
+
+    @app.get("/api/candidates")
+    def candidates(
+        status: str | None = None, token: str = "", authorization: str | None = Header(None)
+    ):
+        if status and status != "approved":
+            if not _admin_ok(token, authorization, cfg):
+                raise HTTPException(status_code=403, detail="需要管理员权限")
+        if _admin_ok(token, authorization, cfg):
+            return puzzle.all_candidates(status)
+        return puzzle.all_candidates("approved")
+
+    @app.get("/api/random-pending")
+    def random_pending(n: int = 5, token: str = ""):
+        from ..paths import PROCESSED, STDSRC
+
+        need = [c for c in level1_chars() if not (PROCESSED / f"{c}.png").exists()]
+        conn = store.connect()
+        approved = {
+            r["char"]
+            for r in conn.execute("SELECT DISTINCT char FROM candidates WHERE status = 'approved'").fetchall()
+        }
+        conn.close()
+        pending = [c for c in need if c not in approved]
+        import random
+
+        random.shuffle(pending)
+        picked = pending[: max(1, n)]
+        return [
+            {
+                "char": c,
+                "handwritten": (PROCESSED / f"{c}.png").exists(),
+                "approved": c in approved,
+                "std": (STDSRC / f"{c}.png").exists(),
+            }
+            for c in picked
+        ]
+
+    @app.get("/api/gallery")
+    def gallery():
+        from ..paths import PROCESSED
+
+        conn = store.connect()
+        approved = {}
+        for r in conn.execute(
+            "SELECT c.char AS char, c.uid AS uid FROM candidates c "
+            "JOIN (SELECT char, MAX(id) AS mid FROM candidates WHERE status='approved' GROUP BY char) m "
+            "ON c.id = m.mid"
+        ).fetchall():
+            approved[r["char"]] = r["uid"]
+        conn.close()
+        out = []
+        for c in level1_chars():
+            uid = approved.get(c)
+            out.append(
+                {
+                    "char": c,
+                    "handwritten": (PROCESSED / f"{c}.png").exists(),
+                    "approved_uid": uid,
+                }
+            )
+        return out
+
+    @app.get("/api/candidates/{uid}/png")
+    def cand_png(uid: str, token: str = "", authorization: str | None = Header(None)):
+        files = puzzle.cand_files(uid)
+        if not files:
+            raise HTTPException(status_code=404, detail="候选不存在")
+        png, svg, proj = files
+        # 未审核的只有管理员可见
+        from .. import store as _s
+
+        conn = _s.connect()
+        row = conn.execute("SELECT status FROM candidates WHERE uid = ?", (uid,)).fetchone()
+        conn.close()
+        status = row["status"] if row else None
+        if status != "approved" and not _admin_ok(token, authorization, cfg):
+            raise HTTPException(status_code=403, detail="需要管理员权限")
+        return FileResponse(str(png), media_type="image/png")
+
+    @app.get("/api/candidates/{uid}/svg")
+    def cand_svg(uid: str, token: str = "", authorization: str | None = Header(None)):
+        files = puzzle.cand_files(uid)
+        if not files:
+            raise HTTPException(status_code=404, detail="候选不存在")
+        png, svg, proj = files
+        from .. import store as _s
+
+        conn = _s.connect()
+        row = conn.execute("SELECT status FROM candidates WHERE uid = ?", (uid,)).fetchone()
+        conn.close()
+        status = row["status"] if row else None
+        if status != "approved" and not _admin_ok(token, authorization, cfg):
+            raise HTTPException(status_code=403, detail="需要管理员权限")
+        return FileResponse(str(svg), media_type="image/svg+xml")
+
+    @app.get("/api/candidates/{uid}/project")
+    def cand_project(uid: str, token: str = "", authorization: str | None = Header(None)):
+        if not _admin_ok(token, authorization, cfg):
+            raise HTTPException(status_code=403, detail="需要管理员权限")
+        files = puzzle.cand_files(uid)
+        if not files:
+            raise HTTPException(status_code=404, detail="候选不存在")
+        png, svg, proj = files
+        return FileResponse(str(proj), media_type="application/json")
+
+    @app.post("/api/admin/approve")
+    def approve(uid: str = Form(...), token: str = Form(""), authorization: str | None = Header(None)):
+        if not _admin_ok(token, authorization, cfg):
+            raise HTTPException(status_code=403, detail="需要管理员权限")
+        ok = puzzle.set_status(uid, "approved")
+        if not ok:
+            raise HTTPException(status_code=404, detail="候选不存在")
+        return {"ok": True, "uid": uid, "status": "approved"}
+
+    @app.post("/api/admin/reject")
+    def reject(uid: str = Form(...), token: str = Form(""), authorization: str | None = Header(None)):
+        if not _admin_ok(token, authorization, cfg):
+            raise HTTPException(status_code=403, detail="需要管理员权限")
+        ok = puzzle.set_status(uid, "rejected")
+        if not ok:
+            raise HTTPException(status_code=404, detail="候选不存在")
+        return {"ok": True, "uid": uid, "status": "rejected"}
+
+    # ---- 前端静态资源 ----
+    dist_dir = ROOT / "webui" / "dist"
+    if dist_dir.exists():
+        app.mount("/assets", StaticFiles(directory=str(dist_dir / "assets")), name="assets")
+
+        @app.get("/")
+        def index():
+            return FileResponse(str(dist_dir / "index.html"), media_type="text/html")
+
+    return app

@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Node
+webui/node_modules/
+
+# 构建产物（FastAPI 托管用，改动 vue 后 npm.cmd run build 重建）
+webui/dist/
+
+# 数据库（含用户/会话/审核数据，勿提交）
+queue/
+*.db
+*.sqlite3
+
+# 导出产物
+output/
+
+# 失效/大体积资产（保留在磁盘，不入库）
+others/
+checkpoints/
+models/
+*.pt
+*.pth
+
+# 系统
+.DS_Store
+Thumbs.db

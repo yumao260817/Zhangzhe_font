@@ -1,0 +1,26 @@
+charset: level1
+
+qa:
+  ocr_pass: 0.95
+  structure_pass: 0.85
+  style_pass: 0.80
+
+rework:
+  max_attempts: 3
+  fallback_order: [dl, assemble]
+
+generate:
+  grid_hw: 256
+  anchors: 3
+
+server:
+  host: 127.0.0.1
+  port: 8000
+  # admin_token: admin123
+  # 邮箱注册用户中，这些邮箱的账号自动获得管理员(审核)权限
+  admin_emails:
+    # - admin@example.com
+    fgsl1234@gmail.com
+
+export:
+  fmt: ttf
