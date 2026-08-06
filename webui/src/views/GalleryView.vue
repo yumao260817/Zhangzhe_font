@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 
 const emit = defineEmits(['open-char'])
 
@@ -8,6 +8,8 @@ const loading = ref(true)
 const error = ref('')
 const filter = ref('all') // all | done | missing
 const query = ref('')
+const pyChars = ref([]) // 拼音命中的字
+const pyName = ref('') // 当前拼音（显示提示用）
 
 async function loadAll() {
   loading.value = true
@@ -23,6 +25,33 @@ async function loadAll() {
   }
 }
 
+function isPinyin(q) {
+  return /^[a-zA-Z]+$/.test(q)
+}
+
+let timer = null
+watch(query, (q) => {
+  clearTimeout(timer)
+  q = q.trim()
+  if (isPinyin(q)) {
+    timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/pinyin/${encodeURIComponent(q.toLowerCase())}`)
+        if (!res.ok) return
+        const data = await res.json()
+        if (data.pinyin !== q.toLowerCase()) return // 输入已变化
+        pyChars.value = data.chars
+        pyName.value = data.pinyin
+      } catch (e) {
+        pyChars.value = []
+      }
+    }, 200)
+  } else {
+    pyChars.value = []
+    pyName.value = ''
+  }
+})
+
 const stats = computed(() => {
   if (!all.value.length) return { total: 0, done: 0 }
   const done = all.value.filter((c) => c.handwritten || c.approved_uid).length
@@ -34,7 +63,14 @@ const shown = computed(() => {
   if (filter.value === 'done') list = list.filter((c) => c.handwritten || c.approved_uid)
   if (filter.value === 'missing') list = list.filter((c) => !c.handwritten && !c.approved_uid)
   const q = query.value.trim()
-  if (q) list = list.filter((c) => c.char === q)
+  if (q) {
+    if (isPinyin(q)) {
+      const keys = new Set(pyChars.value.map((c) => c.char))
+      list = list.filter((c) => keys.has(c.char))
+    } else {
+      list = list.filter((c) => q.includes(c.char))
+    }
+  }
   return list
 })
 
@@ -66,7 +102,8 @@ onMounted(loadAll)
   <div class="gallery">
     <div class="toolbar">
       <h2>字库（{{ stats.total }} 字 / 已有 {{ stats.done }}）</h2>
-      <input v-model="query" maxlength="1" placeholder="过滤：输入汉字" />
+      <input v-model="query" placeholder="输入汉字或拼音，如：张 / zhang" />
+      <span v-if="pyName" class="pynote">拼音「{{ pyName }}」共 {{ pyChars.length }} 字</span>
       <div class="filters">
         <button :class="{ active: filter === 'all' }" @click="filter = 'all'">全部</button>
         <button :class="{ active: filter === 'done' }" @click="filter = 'done'">已有</button>
@@ -114,10 +151,14 @@ onMounted(loadAll)
   font-size: 16px;
 }
 .toolbar input {
-  width: 130px;
+  width: 200px;
   padding: 7px;
   border: 1px solid #ccc;
   border-radius: 4px;
+}
+.pynote {
+  font-size: 12px;
+  color: #2b7de9;
 }
 .filters {
   display: flex;

@@ -14,12 +14,11 @@ generate:
   anchors: 3
 
 server:
-  host: 127.0.0.1
+  host: 0.0.0.0
   port: 8000
-  # admin_token: admin123
+  admin_token: admin123
   # 邮箱注册用户中，这些邮箱的账号自动获得管理员(审核)权限
-  admin_emails:
-    # - admin@example.com
+  # 本地测试用，正式发布前请填写真实邮箱（提交到 git 前建议删除）
 
 export:
   fmt: ttf

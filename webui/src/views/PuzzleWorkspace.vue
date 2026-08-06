@@ -200,7 +200,7 @@ function reset() {
       </button>
     </div>
     <div class="left">
-      <h2>拼字工作台</h2>
+      <h2>苟岂协作字体制作平台 · 拼字</h2>
       <div class="field">
         <label>目标字</label>
         <div class="row">

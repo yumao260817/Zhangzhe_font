@@ -8,7 +8,6 @@ import { api, getToken, setToken } from './auth.js'
 
 const view = ref('gallery')
 const targetChar = ref('')
-const health = ref(null)
 const user = ref(null)
 
 function parseHash() {
@@ -32,13 +31,6 @@ function navigate(seg, ch = '') {
 
 function openChar(ch) {
   navigate('workspace', ch)
-}
-
-function loadHealth() {
-  fetch('/health')
-    .then((r) => r.json())
-    .then((h) => (health.value = h))
-    .catch(() => (health.value = { ok: false }))
 }
 
 function restoreSession() {
@@ -73,7 +65,6 @@ function logout() {
 
 onMounted(() => {
   parseHash()
-  loadHealth()
   restoreSession()
   window.addEventListener('hashchange', parseHash)
 })
@@ -83,9 +74,7 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', parseHash))
 <template>
   <div class="app">
     <header>
-      <h1>手写字库 · 拼字工作台</h1>
-      <span v-if="health && health.ok" class="conn ok">后端已连接</span>
-      <span v-else class="conn no">后端未连接</span>
+      <h1>苟岂开源字体协作平台</h1>
       <span v-if="user" class="who">
         {{ user.name || user.email }}
         <em v-if="user.role === 'admin'">（管理员）</em>
@@ -94,11 +83,6 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', parseHash))
       <span v-else class="who">
         <a href="#/login" @click="navigate('login')">登录 / 注册</a>
       </span>
-      <nav>
-        <button :class="{ active: view === 'gallery' }" @click="navigate('gallery')">字库</button>
-        <button :class="{ active: view === 'workspace' }" @click="navigate('workspace')">拼字</button>
-        <button :class="{ active: view === 'admin' }" @click="navigate('admin')">管理</button>
-      </nav>
     </header>
     <main>
       <GalleryView v-if="view === 'gallery'" @open-char="openChar" />
@@ -135,45 +119,15 @@ header h1 {
   font-size: 18px;
   margin: 0;
 }
-.conn {
-  font-size: 12px;
-  border-radius: 10px;
-  padding: 2px 10px;
-}
-.conn.ok {
-  background: #e8f5e9;
-  color: #2e7d32;
-}
-.conn.no {
-  background: #fdecea;
-  color: #c62828;
-}
 .who {
   font-size: 13px;
   color: #444;
+  margin-left: auto;
 }
 .who a {
   color: #2b7de9;
   text-decoration: none;
   margin-left: 6px;
-}
-nav {
-  margin-left: auto;
-  display: flex;
-  gap: 6px;
-}
-nav button {
-  padding: 6px 16px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  background: #fff;
-  cursor: pointer;
-  font-size: 14px;
-}
-nav button.active {
-  background: #2b7de9;
-  color: #fff;
-  border-color: #2b7de9;
 }
 .no-access {
   padding: 60px;

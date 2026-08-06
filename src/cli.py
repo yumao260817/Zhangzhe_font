@@ -29,8 +29,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp = add(
         "review",
         "启动评审 WebUI",
-        host=dict(args=["--host"], kwargs={"default": "127.0.0.1"}),
-        port=dict(args=["--port"], kwargs={"type": int, "default": 8000}),
+        host=dict(args=["--host"], kwargs={"default": None}),
+        port=dict(args=["--port"], kwargs={"type": int, "default": None}),
         config=dict(args=["--config"], kwargs={"default": None}),
     )
 

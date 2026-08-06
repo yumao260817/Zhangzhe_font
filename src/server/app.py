@@ -259,6 +259,36 @@ def make_app(config: str | None = None) -> FastAPI:
             for c in picked
         ]
 
+    @app.get("/api/pinyin/{py}")
+    def pinyin_lookup(py: str):
+        """拼音查同音字（GB2312 一级字集）"""
+        from ..pinyin_map import homophones
+
+        chars = homophones(py)
+        from ..paths import PROCESSED
+
+        conn = store.connect()
+        approved = {}
+        for r in conn.execute(
+            "SELECT c.char AS char, c.uid AS uid FROM candidates c "
+            "JOIN (SELECT char, MAX(id) AS mid FROM candidates WHERE status='approved' GROUP BY char) m "
+            "ON c.id = m.mid"
+        ).fetchall():
+            approved[r["char"]] = r["uid"]
+        conn.close()
+        return {
+            "pinyin": py.lower(),
+            "count": len(chars),
+            "chars": [
+                {
+                    "char": c,
+                    "handwritten": (PROCESSED / f"{c}.png").exists(),
+                    "approved_uid": approved.get(c),
+                }
+                for c in chars
+            ],
+        }
+
     @app.get("/api/gallery")
     def gallery():
         from ..paths import PROCESSED
