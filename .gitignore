@@ -16,6 +16,16 @@ queue/
 *.db
 *.sqlite3
 
+# 本地配置（含敏感项），模板见 configs/default.example.yaml
+configs/default.yaml
+.env
+
+# 拼字工作台运行期数据（用户上传部件/候选）
+data/puzzle/
+
+# 其他工具记忆
+.workbuddy/
+
 # 导出产物
 output/
 

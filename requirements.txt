@@ -9,3 +9,5 @@ pydantic
 PyYAML
 pypinyin
 fonttools
+python-multipart
+httpx

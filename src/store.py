@@ -1,4 +1,5 @@
 import sqlite3
+from contextlib import contextmanager
 
 from .paths import DB_FILE
 
@@ -17,6 +18,7 @@ CREATE TABLE IF NOT EXISTS review_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   char TEXT NOT NULL,
   action TEXT NOT NULL,
+  reviewer TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 
@@ -59,8 +61,29 @@ def connect() -> sqlite3.Connection:
     return conn
 
 
+@contextmanager
+def db():
+    """连接 + 自动提交/回滚 + 必然关闭"""
+    conn = connect()
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def init_db() -> None:
     conn = connect()
     conn.executescript(SCHEMA)
+    # 轻量迁移：老库补列
+    cols = [r["name"] for r in conn.execute("PRAGMA table_info(review_log)").fetchall()]
+    if "reviewer" not in cols:
+        conn.execute("ALTER TABLE review_log ADD COLUMN reviewer TEXT")
+    # 查询索引（P2-2）
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_cand_char ON candidates(char)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_cand_status ON candidates(status)")
     conn.commit()
     conn.close()

@@ -60,6 +60,11 @@ def verify_password(password: str, stored: str) -> bool:
 
 
 def admin_emails(cfg: dict) -> set[str]:
+    import os
+
+    env = os.environ.get("ZZ_ADMIN_EMAILS")
+    if env:
+        return {e.strip().lower() for e in env.split(",") if e.strip()}
     server = cfg.get("server", {}) if isinstance(cfg.get("server"), dict) else {}
     raw = server.get("admin_emails") or cfg.get("admin_emails") or []
     if isinstance(raw, str):

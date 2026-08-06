@@ -13,14 +13,32 @@ from . import store
 
 LEVEL1 = set(level1_chars())
 GRID = 512
+MAX_PIECE_BYTES = 2 * 1024 * 1024  # 单部件 2MB 上限
+MAX_PIECES_PER_USER_PER_HOUR = 100  # 单用户上传频率上限
 
 
 def _imread_bytes(data: bytes) -> Image.Image:
     return Image.open(BytesIO(data)).convert("RGBA")
 
 
+def validate_piece(data: bytes) -> tuple[bool, str]:
+    """校验上传数据：大小上限 + 可解码 PNG"""
+    if len(data) > MAX_PIECE_BYTES:
+        return False, f"图片超过大小上限 {MAX_PIECE_BYTES // (1024 * 1024)}MB"
+    try:
+        img = _imread_bytes(data)
+        if img.width < 4 or img.height < 4:
+            return False, "图片尺寸过小"
+    except Exception:
+        return False, "不是有效 PNG 图片"
+    return True, ""
+
+
 def save_piece(data: bytes) -> dict:
     """保存上传的透明 PNG 部件，返回元信息"""
+    ok, msg = validate_piece(data)
+    if not ok:
+        raise ValueError(msg)
     img = _imread_bytes(data)
     h, w = img.height, img.width
 
@@ -144,6 +162,8 @@ def save_candidate(char: str, pieces: list[dict], author: str, note: str = "", p
     """校验 + 存项目与成品，入库 pending。png_data 来自前端所见即所得渲染；None 时后端合成。"""
     if char not in LEVEL1:
         raise ValueError(f"目标字不在一级字集: {char}")
+    if not pieces or len(pieces) > 64:
+        raise ValueError("图层数量无效（1~64）")
     uid = uuid.uuid4().hex[:12]
     cand_dir = PUZZLE_CANDIDATES / char
     cand_dir.mkdir(parents=True, exist_ok=True)
@@ -151,6 +171,14 @@ def save_candidate(char: str, pieces: list[dict], author: str, note: str = "", p
     if png_data is None:
         png = render_png(pieces)
     else:
+        if len(png_data) > MAX_PIECE_BYTES:
+            raise ValueError("PNG 超过大小上限")
+        try:
+            img = _imread_bytes(png_data)
+        except Exception:
+            raise ValueError("PNG 数据不是有效图片")
+        if img.size != (GRID, GRID):
+            raise ValueError(f"PNG 尺寸必须为 {GRID}×{GRID}")
         png = png_data
     import base64
 
@@ -220,28 +248,39 @@ def all_candidates(status: str | None = None, limit: int = 200) -> list[dict]:
 
 
 def cand_files(uid: str) -> tuple[Path, Path, Path] | None:
-    """根据 uid（uuid）查找候选文件；uid 即文件名前缀"""
-    for char_dir in PUZZLE_CANDIDATES.iterdir():
-        if not char_dir.is_dir():
-            continue
-        png = char_dir / f"{uid}.png"
-        svg = char_dir / f"{uid}.svg"
-        proj = char_dir / f"{uid}.json"
-        if png.exists():
-            return png, svg, proj
-    return None
+    """根据 uid 从 DB 查候选文件路径（O(1)）；只返回实际存在的文件"""
+    conn = store.connect()
+    try:
+        row = conn.execute(
+            "SELECT png_path, svg_path, project_path FROM candidates WHERE uid = ?", (uid,)
+        ).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return None
+    paths = tuple(Path(p) for p in (row["png_path"], row["svg_path"], row["project_path"]))
+    if not paths[0].exists():
+        return None
+    return paths  # 类型: (Path, Path, Path)
 
 
 def set_status(uid: str, status: str, reviewer: str = "") -> bool:
     conn = store.connect()
-    cur = conn.execute(
-        "UPDATE candidates SET status = ?, reviewed_at = datetime('now','localtime') WHERE uid = ?",
-        (status, uid),
-    )
-    conn.commit()
-    affected = cur.rowcount
-    conn.close()
-    return affected > 0
+    try:
+        cur = conn.execute(
+            "UPDATE candidates SET status = ?, reviewed_at = datetime('now','localtime') WHERE uid = ?",
+            (status, uid),
+        )
+        row = conn.execute("SELECT char FROM candidates WHERE uid = ?", (uid,)).fetchone()
+        if cur.rowcount > 0 and row:
+            conn.execute(
+                "INSERT INTO review_log (char, action, reviewer) VALUES (?, ?, ?)",
+                (row["char"], f"{status}:{uid}", reviewer),
+            )
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
 
 
 def char_status(char: str) -> dict:
@@ -255,6 +294,22 @@ def char_status(char: str) -> dict:
 
 
 def has_handwritten(char: str) -> bool:
-    from .paths import PROCESSED
+    return char in handwritten_set()
 
-    return (PROCESSED / f"{char}.png").exists()
+
+_HAND_CACHE: tuple = (0.0, frozenset())
+
+
+def handwritten_set(max_age: float = 60) -> frozenset[str]:
+    """data/processed 中已有手写字的集合（60s 缓存，避免 3755 次磁盘 stat）"""
+    import time as _time
+
+    global _HAND_CACHE
+    ts, s = _HAND_CACHE
+    now = _time.time()
+    if now - ts > max_age:
+        from .paths import PROCESSED
+
+        s = frozenset(p.stem for p in PROCESSED.glob("*.png"))
+        _HAND_CACHE = (now, s)
+    return s

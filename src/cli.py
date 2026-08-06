@@ -16,15 +16,6 @@ def build_parser() -> argparse.ArgumentParser:
     add("stdsrc", "渲染标准字形作为配对内容源", src=dict(args=["--src"], kwargs={"default": "msh"}))
     add("import", "盘点 assets 素材，生成清单")
     add("preprocess", "预处理素材成 256 网格")
-    add("classify", "备选图归类打标")
-    add("anchors", "风格聚类与锚点挑选")
-    add("components", "构建部件库与拆分表")
-    add("build_parts", "从手写整字裁出部件真件，建部件库")
-    add("assemble", "用部件真件按标准字形拼装缺字")
-    add("train", "训练 Pix2Pix 风格迁移", epochs=dict(args=["--epochs"], kwargs={"type": int, "default": 80}), batch=dict(args=["--batch"], kwargs={"type": int, "default": 16}))
-    add("generate", "生成缺字候选", charset=dict(args=["--charset"], kwargs={"default": "level1"}))
-    add("qa", "自动质检打分")
-    add("rework", "自动返工")
     add("export", "导出字体文件", fmt=dict(args=["--fmt"], kwargs={"default": "ttf"}))
     sp = add(
         "review",
@@ -63,42 +54,6 @@ def main() -> None:
         run(host=args.host, port=args.port, config=args.config)
     elif cmd == "preprocess":
         from .stage_preprocess import run
-
-        run()
-    elif cmd == "classify":
-        from .stage_classify import run
-
-        run()
-    elif cmd == "anchors":
-        from .stage_anchors import run
-
-        run()
-    elif cmd == "components":
-        from .stage_components import run
-
-        run()
-    elif cmd == "build_parts":
-        from .stage_parts import build
-
-        build()
-    elif cmd == "assemble":
-        from .stage_assemble import run
-
-        run()
-    elif cmd == "train":
-        from .stage_train import run
-
-        run(epochs=args.epochs, batch=args.batch)
-    elif cmd == "generate":
-        from .stage_generate import run
-
-        run()
-    elif cmd == "qa":
-        from .stage_qa import run
-
-        run()
-    elif cmd == "rework":
-        from .stage_rework import run
 
         run()
     elif cmd == "export":

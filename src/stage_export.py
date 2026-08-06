@@ -12,8 +12,7 @@ def imread_gray(path):
     return cv2.imdecode(np.fromfile(str(path), dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
 
 
-def polys_for(bin_img):
-    scale = UPEM / GRID
+def polys_for(bin_img, scale=UPEM / GRID):
     mask = np.uint8(bin_img > 0) * 255
     cnts, hier = cv2.findContours(mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
     polys = []
@@ -21,7 +20,8 @@ def polys_for(bin_img):
         raw = cv2.approxPolyDP(cnt, 0.7, True).reshape(-1, 2)
         if len(raw) < 3:
             continue
-        pts = [[float(x) * scale, (GRID - float(y)) * scale] for x, y in raw]
+        h = bin_img.shape[0]
+        pts = [[float(x) * scale, (h - float(y)) * scale] for x, y in raw]
         area = 0.0
         n = len(pts)
         for i in range(n):
@@ -34,27 +34,32 @@ def polys_for(bin_img):
     return polys
 
 
+def _approved_pngs() -> dict:
+    """char -> 最新 approved 候选的 png_path"""
+    from . import store
+
+    with store.db() as conn:
+        rows = conn.execute(
+            "SELECT c.char AS char, c.png_path AS path FROM candidates c "
+            "JOIN (SELECT char, MAX(id) AS mid FROM candidates WHERE status='approved' GROUP BY char) m "
+            "ON c.id = m.mid"
+        ).fetchall()
+    return {r["char"]: r["path"] for r in rows if r["path"]}
+
+
 def run(fmt="ttf"):
     from fontTools.fontBuilder import FontBuilder
     from fontTools.pens.ttGlyphPen import TTGlyphPen
 
     FONTS.mkdir(parents=True, exist_ok=True)
-    glyphs = {}
-    glyph_order = [".notdef"]
-    cmap = {}
-    from fontTools.pens.ttGlyphPen import TTGlyphPen
-    glyphs[".notdef"] = TTGlyphPen(None).glyph()
-    for ch in level1_chars():
-        p = PROCESSED / f"{ch}.png"
-        if not p.exists():
-            continue
-        im = imread_gray(p)
-        if im is None:
-            continue
-        bin_img = cv2.threshold(im, 160, 255, cv2.THRESH_BINARY_INV)[1]
-        polys = polys_for(bin_img)
+    approved = _approved_pngs()
+
+    def add_glyph(ch: str, gray, size: int):
+        """按图像实际高度缩放轮廓到 UPEM 网格"""
+        bin_img = cv2.threshold(gray, 160, 255, cv2.THRESH_BINARY_INV)[1]
+        polys = polys_for(bin_img, scale=UPEM / size)
         if not polys:
-            continue
+            return False
         name = f"uni{ord(ch):04X}"
         pen = TTGlyphPen(None)
         for pts in polys:
@@ -65,6 +70,35 @@ def run(fmt="ttf"):
         glyphs[name] = pen.glyph()
         glyph_order.append(name)
         cmap[ord(ch)] = name
+        return True
+
+    glyphs = {}
+    glyph_order = [".notdef"]
+    cmap = {}
+    glyphs[".notdef"] = TTGlyphPen(None).glyph()
+    hand_count = cand_count = 0
+    for ch in level1_chars():
+        p = PROCESSED / f"{ch}.png"
+        if p.exists():
+            im = imread_gray(p)
+            if im is None:
+                continue
+            if add_glyph(ch, im, im.shape[0]):
+                hand_count += 1
+            continue
+        # 缺手写：合并人工审核通过的候选（512 透明 PNG，取 alpha 通道）
+        cand_p = approved.get(ch)
+        if not cand_p:
+            continue
+        from PIL import Image as PILImage
+
+        try:
+            img = PILImage.open(cand_p).convert("RGBA")
+        except Exception:
+            continue
+        alpha = np.asarray(img)[:, :, 3]
+        if add_glyph(ch, 255 - alpha, alpha.shape[0]):
+            cand_count += 1
 
     fb = FontBuilder(UPEM, isTTF=True)
     fb.setupGlyphOrder(glyph_order)
@@ -72,8 +106,18 @@ def run(fmt="ttf"):
     fb.setupGlyf(glyphs)
     metrics = {g: (UPEM, 0) for g in glyph_order}
     fb.setupHorizontalMetrics(metrics)
-    fb.setupHorizontalHeader(ascent=UPEM, descent=0)
-    fb.setupOS2(usWeightClass=400, usWidthClass=5, fsSelection=0x40, typoAscender=UPEM, typoDescender=0, sTypoLineGap=0, usWinAscent=UPEM, usWinDescent=0)
+    # 垂直度量：基线在字底，下方留 20% 降部空间，行高合理
+    fb.setupHorizontalHeader(ascent=UPEM, descent=-UPEM // 5)
+    fb.setupOS2(
+        usWeightClass=400,
+        usWidthClass=5,
+        fsSelection=0x40,
+        typoAscender=int(UPEM * 0.8),
+        typoDescender=-UPEM // 5,
+        sTypoLineGap=UPEM // 10,
+        usWinAscent=UPEM,
+        usWinDescent=UPEM // 5,
+    )
     fb.setupNameTable({
         "familyName": "Zhangzhe",
         "styleName": "Regular",
@@ -84,4 +128,4 @@ def run(fmt="ttf"):
     fb.setupPost()
     out = FONTS / "Zhangzhe.ttf"
     fb.save(str(out))
-    print(f"导出完成: {len(glyphs)} 字 -> {out}")
+    print(f"导出完成: 手写 {hand_count} 字 + 人工候选 {cand_count} 字, 共 {len(glyphs)} 字 -> {out}")

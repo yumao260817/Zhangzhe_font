@@ -1,3 +1,5 @@
+import hmac
+import os
 import sqlite3
 from pathlib import Path
 
@@ -24,14 +26,17 @@ def _load_config(path: Path | None) -> dict:
 
 
 def _admin_token(cfg: dict) -> str:
+    env = os.environ.get("ZZ_ADMIN_TOKEN")
+    if env:
+        return env
     server = cfg.get("server", {})
     if isinstance(server, dict) and server.get("admin_token"):
         return server["admin_token"]
-    return cfg.get("admin_token") or "admin"
+    return cfg.get("admin_token") or ""
 
 
 def _check_admin_token(token: str, cfg: dict) -> bool:
-    return token == _admin_token(cfg)
+    return bool(token) and hmac.compare_digest(token, _admin_token(cfg))
 
 
 def _bearer(authorization: str | None) -> str | None:
@@ -48,6 +53,12 @@ def _admin_ok(token: str, authorization: str | None, cfg: dict) -> bool:
         return True
     user = auth.user_by_token(_bearer(authorization))
     return auth.is_admin(user)
+
+
+def _reviewer_name(authorization: str | None) -> str:
+    """从 Bearer 会话取管理员邮箱作为审核人；旧口令审核则留空"""
+    user = auth.user_by_token(_bearer(authorization))
+    return user["email"] if user else ""
 
 
 def make_app(config: str | None = None) -> FastAPI:
@@ -131,13 +142,38 @@ def make_app(config: str | None = None) -> FastAPI:
 
     # ---------------- 拼字工作台 ----------------
 
+    # 上传限流：单用户每小时最多上传次数（内存计数）
+    _piece_uploads: dict[str, list[float]] = {}
+
+    def _piece_rate_ok(uid: int) -> bool:
+        import time as _time
+
+        now = _time.time()
+        stamps = [t for t in _piece_uploads.get(str(uid), []) if now - t < 3600]
+        if len(stamps) >= puzzle.MAX_PIECES_PER_USER_PER_HOUR:
+            _piece_uploads[str(uid)] = stamps
+            return False
+        stamps.append(now)
+        _piece_uploads[str(uid)] = stamps
+        return True
+
     @app.post("/api/pieces")
-    async def upload_piece(file: UploadFile = File(...)):
+    async def upload_piece(
+        file: UploadFile = File(...),
+        authorization: str | None = Header(None),
+    ):
+        user = auth.user_by_token(_bearer(authorization))
+        if not user:
+            raise HTTPException(status_code=401, detail="请先登录")
+        if not _piece_rate_ok(user["id"]):
+            raise HTTPException(status_code=429, detail="上传过于频繁，请稍后再试")
         data = await file.read()
         if not data:
             raise HTTPException(status_code=400, detail="空文件")
         try:
             return puzzle.save_piece(data)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"不是有效 PNG: {e}")
 
@@ -184,7 +220,7 @@ def make_app(config: str | None = None) -> FastAPI:
     @app.post("/api/char/{char}/submit")
     async def submit(
         char: str,
-        author: str = Form(...),
+        author: str = Form(""),
         note: str = Form(""),
         pieces: str = Form(...),
         file: UploadFile | None = File(None),
@@ -195,6 +231,8 @@ def make_app(config: str | None = None) -> FastAPI:
             raise HTTPException(status_code=401, detail="请先登录")
         if char not in level1_chars():
             raise HTTPException(status_code=404, detail="目标字不在 GB2312 一级字集")
+        if len(pieces) > 512 * 1024:
+            raise HTTPException(status_code=413, detail="图层数据过大")
         try:
             import json as _json
 
@@ -209,7 +247,11 @@ def make_app(config: str | None = None) -> FastAPI:
             if not png_data:
                 raise HTTPException(status_code=400, detail="PNG 文件为空")
         try:
+            # 署名强制使用登录用户，防止伪造
+            author = user.get("name") or user["email"]
             return puzzle.save_candidate(char, layers, author=author, note=note, png_data=png_data)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:
             raise HTTPException(status_code=400, detail=str(e))
 
@@ -235,15 +277,15 @@ def make_app(config: str | None = None) -> FastAPI:
 
     @app.get("/api/random-pending")
     def random_pending(n: int = 5, token: str = ""):
-        from ..paths import PROCESSED, STDSRC
+        from ..paths import STDSRC
 
-        need = [c for c in level1_chars() if not (PROCESSED / f"{c}.png").exists()]
-        conn = store.connect()
-        approved = {
-            r["char"]
-            for r in conn.execute("SELECT DISTINCT char FROM candidates WHERE status = 'approved'").fetchall()
-        }
-        conn.close()
+        hand = puzzle.handwritten_set()
+        need = [c for c in level1_chars() if c not in hand]
+        with store.db() as conn:
+            approved = {
+                r["char"]
+                for r in conn.execute("SELECT DISTINCT char FROM candidates WHERE status = 'approved'").fetchall()
+            }
         pending = [c for c in need if c not in approved]
         import random
 
@@ -252,7 +294,7 @@ def make_app(config: str | None = None) -> FastAPI:
         return [
             {
                 "char": c,
-                "handwritten": (PROCESSED / f"{c}.png").exists(),
+                "handwritten": c in hand,
                 "approved": c in approved,
                 "std": (STDSRC / f"{c}.png").exists(),
             }
@@ -265,50 +307,42 @@ def make_app(config: str | None = None) -> FastAPI:
         from ..pinyin_map import homophones
 
         chars = homophones(py)
-        from ..paths import PROCESSED
-
-        conn = store.connect()
-        approved = {}
-        for r in conn.execute(
-            "SELECT c.char AS char, c.uid AS uid FROM candidates c "
-            "JOIN (SELECT char, MAX(id) AS mid FROM candidates WHERE status='approved' GROUP BY char) m "
-            "ON c.id = m.mid"
-        ).fetchall():
-            approved[r["char"]] = r["uid"]
-        conn.close()
+        hand = puzzle.handwritten_set()
+        approved = _approved_uids()
         return {
             "pinyin": py.lower(),
             "count": len(chars),
             "chars": [
                 {
                     "char": c,
-                    "handwritten": (PROCESSED / f"{c}.png").exists(),
+                    "handwritten": c in hand,
                     "approved_uid": approved.get(c),
                 }
                 for c in chars
             ],
         }
 
+    def _approved_uids() -> dict:
+        """char -> 最新 approved 候选 uid"""
+        with store.db() as conn:
+            rows = conn.execute(
+                "SELECT c.char AS char, c.uid AS uid FROM candidates c "
+                "JOIN (SELECT char, MAX(id) AS mid FROM candidates WHERE status='approved' GROUP BY char) m "
+                "ON c.id = m.mid"
+            ).fetchall()
+        return {r["char"]: r["uid"] for r in rows}
+
     @app.get("/api/gallery")
     def gallery():
-        from ..paths import PROCESSED
-
-        conn = store.connect()
-        approved = {}
-        for r in conn.execute(
-            "SELECT c.char AS char, c.uid AS uid FROM candidates c "
-            "JOIN (SELECT char, MAX(id) AS mid FROM candidates WHERE status='approved' GROUP BY char) m "
-            "ON c.id = m.mid"
-        ).fetchall():
-            approved[r["char"]] = r["uid"]
-        conn.close()
+        hand = puzzle.handwritten_set()
+        approved = _approved_uids()
         out = []
         for c in level1_chars():
             uid = approved.get(c)
             out.append(
                 {
                     "char": c,
-                    "handwritten": (PROCESSED / f"{c}.png").exists(),
+                    "handwritten": c in hand,
                     "approved_uid": uid,
                 }
             )
@@ -361,7 +395,8 @@ def make_app(config: str | None = None) -> FastAPI:
     def approve(uid: str = Form(...), token: str = Form(""), authorization: str | None = Header(None)):
         if not _admin_ok(token, authorization, cfg):
             raise HTTPException(status_code=403, detail="需要管理员权限")
-        ok = puzzle.set_status(uid, "approved")
+        reviewer = _reviewer_name(authorization)
+        ok = puzzle.set_status(uid, "approved", reviewer=reviewer)
         if not ok:
             raise HTTPException(status_code=404, detail="候选不存在")
         return {"ok": True, "uid": uid, "status": "approved"}
@@ -370,7 +405,8 @@ def make_app(config: str | None = None) -> FastAPI:
     def reject(uid: str = Form(...), token: str = Form(""), authorization: str | None = Header(None)):
         if not _admin_ok(token, authorization, cfg):
             raise HTTPException(status_code=403, detail="需要管理员权限")
-        ok = puzzle.set_status(uid, "rejected")
+        reviewer = _reviewer_name(authorization)
+        ok = puzzle.set_status(uid, "rejected", reviewer=reviewer)
         if not ok:
             raise HTTPException(status_code=404, detail="候选不存在")
         return {"ok": True, "uid": uid, "status": "rejected"}
