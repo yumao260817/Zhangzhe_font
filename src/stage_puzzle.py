@@ -158,28 +158,27 @@ def render_svg(pieces: list[dict], png_b64: str) -> str:
     )
 
 
-def save_candidate(char: str, pieces: list[dict], author: str, note: str = "", png_data: bytes | None = None) -> dict:
-    """校验 + 存项目与成品，入库 pending。png_data 来自前端所见即所得渲染；None 时后端合成。"""
+def save_candidate(char: str, pieces: list[dict], author: str, note: str = "", png_data: bytes = b"") -> dict:
+    """校验 + 存项目与成品，入库 pending。png_data 为前端所见即所得渲染的合并图（必填）。"""
     if char not in LEVEL1:
         raise ValueError(f"目标字不在一级字集: {char}")
-    if not pieces or len(pieces) > 64:
-        raise ValueError("图层数量无效（1~64）")
+    if len(pieces) > 64:
+        raise ValueError("图层数量无效（最多 64）")
+    if not png_data:
+        raise ValueError("缺少合并后的 PNG 数据")
+    if len(png_data) > MAX_PIECE_BYTES:
+        raise ValueError("PNG 超过大小上限")
+    try:
+        img = _imread_bytes(png_data)
+    except Exception:
+        raise ValueError("PNG 数据不是有效图片")
+    if img.size != (GRID, GRID):
+        raise ValueError(f"PNG 尺寸必须为 {GRID}×{GRID}")
     uid = uuid.uuid4().hex[:12]
     cand_dir = PUZZLE_CANDIDATES / char
     cand_dir.mkdir(parents=True, exist_ok=True)
 
-    if png_data is None:
-        png = render_png(pieces)
-    else:
-        if len(png_data) > MAX_PIECE_BYTES:
-            raise ValueError("PNG 超过大小上限")
-        try:
-            img = _imread_bytes(png_data)
-        except Exception:
-            raise ValueError("PNG 数据不是有效图片")
-        if img.size != (GRID, GRID):
-            raise ValueError(f"PNG 尺寸必须为 {GRID}×{GRID}")
-        png = png_data
+    png = png_data
     import base64
 
     png_b64 = base64.b64encode(png).decode()
@@ -197,21 +196,19 @@ def save_candidate(char: str, pieces: list[dict], author: str, note: str = "", p
                 "pieces": pieces,
                 "author": author,
                 "note": note,
-                "png_source": "frontend" if png_data is not None else "backend",
+                "png_source": "frontend",
             },
             ensure_ascii=False,
         ),
         encoding="utf-8",
     )
 
-    conn = store.connect()
-    conn.execute(
-        "INSERT INTO candidates (char, uid, author, status, png_path, svg_path, project_path, note) "
-        "VALUES (?, ?, ?, 'pending', ?, ?, ?, ?)",
-        (char, uid, author, str(png_p), str(svg_p), str(proj_p), note),
-    )
-    conn.commit()
-    conn.close()
+    with store.db() as conn:
+        conn.execute(
+            "INSERT INTO candidates (char, uid, author, status, png_path, svg_path, project_path, note) "
+            "VALUES (?, ?, ?, 'pending', ?, ?, ?, ?)",
+            (char, uid, author, str(png_p), str(svg_p), str(proj_p), note),
+        )
     return {"id": uid, "char": char, "status": "pending"}
 
 

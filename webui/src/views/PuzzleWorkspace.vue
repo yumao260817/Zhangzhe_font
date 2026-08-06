@@ -12,7 +12,6 @@ const emit = defineEmits(['char-changed'])
 const layers = ref([])
 const selectedId = ref(null)
 const char = ref('')
-const author = ref(localStorage.getItem('puzzle_author') || '')
 const note = ref('')
 const charInfo = ref(null)
 const loading = ref(false)
@@ -26,25 +25,36 @@ function addKey() {
   return 'loc-' + ++seq + '-' + Date.now()
 }
 
+function readFileAsDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result)
+    reader.onerror = () => reject(new Error('文件读取失败'))
+    reader.readAsDataURL(file)
+  })
+}
+
 async function uploadFiles(fileList) {
   for (const file of fileList) {
-    const form = new FormData()
-    form.append('file', file)
     try {
-      const res = await fetch('/api/pieces', { method: 'POST', body: form })
-      const meta = await res.json()
-      if (!res.ok) throw new Error(meta.detail || '上传失败')
-      const id = 'up-' + meta.id + '-' + addKey()
+      // 部件仅在前端处理，不上传后台
+      const url = await readFileAsDataURL(file)
+      const img = new Image()
+      await new Promise((resolve, reject) => {
+        img.onload = resolve
+        img.onerror = () => reject(new Error('图片解析失败'))
+        img.src = url
+      })
+      const id = addKey()
       layers.value.push({
         id,
-        piece_id: meta.id,
-        url: meta.url,
-        w: meta.w,
-        h: meta.h,
+        url,
+        w: img.naturalWidth,
+        h: img.naturalHeight,
         x: 180,
         y: 180,
-        scale_w: meta.w,
-        scale_h: meta.h,
+        scale_w: img.naturalWidth,
+        scale_h: img.naturalHeight,
         angle: 0,
         flip: false,
       })
@@ -155,26 +165,18 @@ async function exportLayer() {
     message.value = '画布为空'
     return
   }
-  if (!author.value.trim()) {
-    message.value = '请填写署名'
-    return
-  }
   exporting.value = true
   message.value = ''
   try {
-    // 所见即所得：把当前画布渲染成 PNG，提交给后端存储
+    // 所见即所得：把当前画布渲染成 PNG，仅提交合并后的图片（部件不落服务器）
     const canvas = await renderCanvas(layers.value)
     const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'))
     const fd = new FormData()
-    fd.append('char', char.value.trim())
-    fd.append('author', author.value.trim())
     fd.append('note', note.value)
-    fd.append('pieces', JSON.stringify(layers.value))
     fd.append('file', blob, 'render.png')
     const res = await api(`/api/char/${encodeURIComponent(char.value.trim())}/submit`, { method: 'POST', body: fd })
     const body = await res.json()
     if (!res.ok) throw new Error(body.detail || '导出失败')
-    localStorage.setItem('puzzle_author', author.value.trim())
     message.value = `已提交 ${body.char} 候选（待管理员审核）`
     await queryChar()
   } catch (err) {
@@ -216,7 +218,7 @@ function reset() {
       </div>
 
       <div class="field">
-        <label>上传部件（可多选/拖拽）</label>
+        <label>添加部件（本地上传，仅前端处理；可多选/拖拽）</label>
         <input type="file" accept="image/png" multiple @change="onFileChange" />
       </div>
 
@@ -268,7 +270,6 @@ function reset() {
         />
       </div>
       <div class="exportbar">
-        <input v-model="author" placeholder="署名" />
         <input v-model="note" placeholder="备注（可选）" />
         <button class="primary" @click="exportLayer" :disabled="exporting">
           {{ exporting ? '导出中…' : '导出 PNG + SVG' }}

@@ -142,41 +142,6 @@ def make_app(config: str | None = None) -> FastAPI:
 
     # ---------------- 拼字工作台 ----------------
 
-    # 上传限流：单用户每小时最多上传次数（内存计数）
-    _piece_uploads: dict[str, list[float]] = {}
-
-    def _piece_rate_ok(uid: int) -> bool:
-        import time as _time
-
-        now = _time.time()
-        stamps = [t for t in _piece_uploads.get(str(uid), []) if now - t < 3600]
-        if len(stamps) >= puzzle.MAX_PIECES_PER_USER_PER_HOUR:
-            _piece_uploads[str(uid)] = stamps
-            return False
-        stamps.append(now)
-        _piece_uploads[str(uid)] = stamps
-        return True
-
-    @app.post("/api/pieces")
-    async def upload_piece(
-        file: UploadFile = File(...),
-        authorization: str | None = Header(None),
-    ):
-        user = auth.user_by_token(_bearer(authorization))
-        if not user:
-            raise HTTPException(status_code=401, detail="请先登录")
-        if not _piece_rate_ok(user["id"]):
-            raise HTTPException(status_code=429, detail="上传过于频繁，请稍后再试")
-        data = await file.read()
-        if not data:
-            raise HTTPException(status_code=400, detail="空文件")
-        try:
-            return puzzle.save_piece(data)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"不是有效 PNG: {e}")
-
     @app.get("/api/pieces/{pid}/img")
     def piece_img(pid: str):
         fp = PUZZLE_PIECES / f"{pid}.png"
@@ -220,10 +185,9 @@ def make_app(config: str | None = None) -> FastAPI:
     @app.post("/api/char/{char}/submit")
     async def submit(
         char: str,
-        author: str = Form(""),
         note: str = Form(""),
-        pieces: str = Form(...),
-        file: UploadFile | None = File(None),
+        pieces: str = Form(""),
+        file: UploadFile = File(...),
         authorization: str | None = Header(None),
     ):
         user = auth.user_by_token(_bearer(authorization))
@@ -233,19 +197,19 @@ def make_app(config: str | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="目标字不在 GB2312 一级字集")
         if len(pieces) > 512 * 1024:
             raise HTTPException(status_code=413, detail="图层数据过大")
-        try:
-            import json as _json
+        layers: list = []
+        if pieces:
+            try:
+                import json as _json
 
-            layers = _json.loads(pieces)
-            if not isinstance(layers, list) or len(layers) == 0:
-                raise ValueError("至少需要一个图层")
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"图层数据无效: {e}")
-        png_data = None
-        if file is not None:
-            png_data = await file.read()
-            if not png_data:
-                raise HTTPException(status_code=400, detail="PNG 文件为空")
+                layers = _json.loads(pieces)
+                if not isinstance(layers, list):
+                    raise ValueError("图层数据必须是数组")
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"图层数据无效: {e}")
+        png_data = await file.read()
+        if not png_data:
+            raise HTTPException(status_code=400, detail="PNG 文件为空")
         try:
             # 署名强制使用登录用户，防止伪造
             author = user.get("name") or user["email"]
