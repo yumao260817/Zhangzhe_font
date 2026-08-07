@@ -105,9 +105,11 @@ onMounted(loadAll)
 <template>
   <div>
     <div class="toolbar">
-      <h2>字库（{{ stats.total }} 字 / 已有 {{ stats.done }}）</h2>
-      <input v-model="query" placeholder="输入汉字或拼音，如：张 / zhang" />
+      <!-- <h2>字库（{{ stats.total }} 字 / 已有 {{ stats.done }}）</h2> -->
+       <h2>输入汉字或拼音可进行筛选</h2>
+      <input v-model="query" placeholder="如：张 / zhang" />
       <span v-if="pyName" class="pynote">拼音「{{ pyName }}」共 {{ pyChars.length }} 字</span>
+      <h2>（已有{{ stats.done }} 字 / 共 {{ stats.total }}）</h2>
       <div class="filters">
         <button :class="{ active: filter === 'all' }" @click="filter = 'all'">全部</button>
         <button :class="{ active: filter === 'done' }" @click="filter = 'done'">已有</button>

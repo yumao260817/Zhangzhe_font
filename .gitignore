@@ -26,6 +26,15 @@ data/puzzle/
 # 其他工具记忆
 .workbuddy/
 
+# AI Agent 相关文件（一律不提交）
+AGENTS.md
+.opencode/
+.claude/
+.cursor/
+.copilot/
+agents/
+*.agent.md
+
 # 导出产物
 output/
 
