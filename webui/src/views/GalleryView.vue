@@ -118,7 +118,19 @@ onMounted(loadAll)
     <p v-if="loading">加载中…</p>
     <p v-if="error" class="err">错误：{{ error }}</p>
 
-    <div v-else class="grid">
+    <section v-if="!loading && !error" class="intro">
+      <h3 class="intro-title">字库补全计划</h3>
+      <p class="intro-text">
+        这是长者手写汉字的数字化工程，当前目标补全 GB2312 一级
+        <strong>{{ stats.total }}</strong> 字。当前已完成
+        <strong>{{ stats.done }}</strong> / {{ stats.total }}。
+      </p>
+      <p class="intro-text">
+        标注<span class="legend legend-has">原字</span>的为长者手写字，标注<span class="legend legend-miss">拼字</span>的为真正的粉丝以原字偏旁部首拼接二次创作。<br>点击任意字即可进入拼字工作台参与补全。
+      </p>
+    </section>
+
+    <div v-if="!loading && !error" class="grid">
       <button
         v-for="c in shown"
         :key="c.char"
@@ -231,7 +243,7 @@ onMounted(loadAll)
   position: absolute;
   left: 3px;
   bottom: 2px;
-  font-size: 12px;
+  font-size: 24px;
   color: #888;
   background: rgba(255, 255, 255, 0.75);
   padding: 0 4px;
@@ -257,6 +269,44 @@ onMounted(loadAll)
 }
 .err {
   color: #c62828;
+}
+.intro {
+  max-width: 1240px;
+  margin: 0 auto 18px;
+  padding: 14px 18px;
+  background: #fafbfc;
+  border: 1px solid #e6e8eb;
+  border-radius: 8px;
+}
+.intro-title {
+  margin: 0 0 6px;
+  font-size: 15px;
+  color: #1f2733;
+}
+.intro-text {
+  margin: 0 0 6px;
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: #5a6573;
+}
+.intro-text:last-child {
+  margin-bottom: 0;
+}
+.intro-text strong {
+  color: #2b7de9;
+}
+.legend {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 3px;
+  font-size: 12px;
+  color: #fff;
+}
+.legend-has {
+  background: rgba(43, 125, 233, 0.85);
+}
+.legend-miss {
+  background: rgba(198, 40, 40, 0.85);
 }
 .back-top {
   position: fixed;

@@ -254,7 +254,7 @@ function goGallery() {
           <span :class="charInfo.handwritten ? 'ok' : 'no'">
             {{ charInfo.handwritten ? '已有手写原迹' : '缺手写' }}
           </span>
-          <span>待审 {{ charInfo.pending.length }} / 已批准 {{ charInfo.approved.length }}</span>
+          <span>待审 {{ charInfo.pending.length }} / 已过审 {{ charInfo.approved.length }}</span>
         </div>
       </div>
 
@@ -263,7 +263,7 @@ function goGallery() {
           添加部件
           <input type="file" accept="image/png" multiple @change="onFileChange" />
         </label>
-        <p class="hint">支持多选，或直接拖拽到画布中</p>
+        <p class="hint">你可以直接上传白底黑字的整字<br>也可以用偏旁部首拼接<br>支持多选，或直接拖拽到画布中</p>
       </div>
 
       <div class="field">
@@ -271,57 +271,60 @@ function goGallery() {
           上传出处
           <input type="file" accept="image/*" @change="onSourceChange" />
         </label>
-        <p class="hint">上传整字原图作为审核证据（可选，过大将自动压缩）；未上传的提交将标记为「拼字」</p>
-        <p v-if="sourceName" class="source-note">已选择出处：{{ sourceName }}</p>
+        <p class="hint">此处上传整字原图作为审核证据（可选，过大将自动压缩）；未上传出处原图的无论是整字还是拼字将一律标记为「拼字」</p>
+        <p v-if="sourceName" class="source-note">已上传出处原图：{{ sourceName }}</p>
       </div>
 
-      <div v-if="selected" class="tools">
-        <h3>图层工具（滚轮缩放 / 拖动挪位）</h3>
-        <p>
-          原始 {{ selected.w }}×{{ selected.h }}
-          <span v-if="selected.scale_w !== selected.w || selected.scale_h !== selected.h">
-            → 显示 {{ selected.scale_w }}×{{ selected.scale_h }}
-          </span>
-        </p>
-        <div class="row">
-          <input
-            type="range"
-            min="10"
-            max="400"
-            :value="selected.scale_w"
-            @input="updateLayer({ ...selected, scale_w: +$event.target.value, scale_h: Math.round(+$event.target.value * (selected.h / selected.w)) })"
-          />
-        </div>
-        <div class="row">
-          <button @click="updateLayer({ ...selected, flip: !selected.flip })">翻转</button>
-          <button @click="updateLayer({ ...selected, angle: (selected.angle + 90) % 360 })">旋转90°</button>
-          <button @click="updateLayer({ ...selected, angle: (selected.angle - 90) % 360 })">反向90°</button>
-          <button class="danger" @click="deleteLayer(selected.id)">删除</button>
-        </div>
-        <div class="row">
-          <button @click="selected && zMove(1)">置上</button>
-          <button @click="selected && zMove(-1)">置下</button>
-          <button @click="settleIntoCenter">全部归零</button>
-        </div>
-      </div>
       <p class="hint">点击画布中的图层可选中操作</p>
       <button class="primary" @click="goGallery">返回首页</button>
     </div>
 
     <div class="right">
-      <div
-        class="canvas-host"
-        @dragover.prevent
-        @drop="dropHandler"
-      >
-        <LayerCanvas
-          :layers="layers"
-          :selected-id="selectedId"
-          :reference-url="charInfo && charInfo.std ? `/api/std/${encodeURIComponent(charInfo.char)}/img` : null"
-          @select="(id) => (selectedId = id)"
-          @update="updateLayer"
-          @delete="deleteLayer"
-        />
+      <div class="canvas-area">
+        <div
+          class="canvas-host"
+          @dragover.prevent
+          @drop="dropHandler"
+        >
+          <LayerCanvas
+            :layers="layers"
+            :selected-id="selectedId"
+            :reference-url="charInfo && charInfo.std ? `/api/std/${encodeURIComponent(charInfo.char)}/img` : null"
+            @select="(id) => (selectedId = id)"
+            @update="updateLayer"
+            @delete="deleteLayer"
+          />
+        </div>
+
+        <div v-if="selected" class="tools">
+          <h3>图层工具（滚轮缩放 / 拖动挪位）</h3>
+          <p>
+            原始 {{ selected.w }}×{{ selected.h }}
+            <span v-if="selected.scale_w !== selected.w || selected.scale_h !== selected.h">
+              → 显示 {{ selected.scale_w }}×{{ selected.scale_h }}
+            </span>
+          </p>
+          <div class="row">
+            <input
+              type="range"
+              min="10"
+              max="400"
+              :value="selected.scale_w"
+              @input="updateLayer({ ...selected, scale_w: +$event.target.value, scale_h: Math.round(+$event.target.value * (selected.h / selected.w)) })"
+            />
+          </div>
+          <div class="row">
+            <button @click="updateLayer({ ...selected, flip: !selected.flip })">翻转</button>
+            <button @click="updateLayer({ ...selected, angle: (selected.angle + 90) % 360 })">旋转90°</button>
+            <button @click="updateLayer({ ...selected, angle: (selected.angle - 90) % 360 })">反向90°</button>
+            <button class="danger" @click="deleteLayer(selected.id)">删除</button>
+          </div>
+          <div class="row">
+            <button @click="selected && zMove(1)">置上</button>
+            <button @click="selected && zMove(-1)">置下</button>
+            <button @click="settleIntoCenter">全部归零</button>
+          </div>
+        </div>
       </div>
       <div class="exportbar">
         <!-- <input v-model="note" placeholder="备注（可选）" /> -->
@@ -491,6 +494,14 @@ button.danger {
 }
 .canvas-host {
   display: inline-block;
+}
+.canvas-area {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+.canvas-area .tools {
+  flex: 0 0 220px;
 }
 .exportbar {
   display: flex;

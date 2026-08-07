@@ -32,6 +32,10 @@ function authQuery() {
   return t ? `?token=${encodeURIComponent(t)}` : ''
 }
 
+function goHome() {
+  window.location.hash = '#/gallery'
+}
+
 function imgUrl(uid) {
   return `/api/candidates/${uid}/png${authQuery()}`
 }
@@ -58,10 +62,13 @@ onMounted(load)
 
 <template>
   <div class="admin">
-    <h2>管理员审核</h2>
+    <div class="head">
+      <h2>管理员审核</h2>
+      <button class="primary" @click="goHome">返回首页</button>
+    </div>
     <div class="tabs">
       <button :class="{ active: tab === 'pending' }" @click="tab = 'pending'; load()">待审核</button>
-      <button :class="{ active: tab === 'approved' }" @click="tab = 'approved'; load()">已批准</button>
+      <button :class="{ active: tab === 'approved' }" @click="tab = 'approved'; load()">已过审</button>
       <button :class="{ active: tab === 'rejected' }" @click="tab = 'rejected'; load()">已驳回</button>
     </div>
     <p v-if="message" class="msg">{{ message }}</p>
@@ -97,6 +104,27 @@ onMounted(load)
 .admin {
   padding: 20px;
   max-width: 1100px;
+}
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.head h2 {
+  margin: 0 0 14px;
+}
+.head .primary {
+  padding: 6px 12px;
+  border: 1px solid #2b7de9;
+  border-radius: 4px;
+  background: #2b7de9;
+  color: #fff;
+  cursor: pointer;
+  font-size: 14px;
+}
+.head .primary:hover {
+  background: #1f66c4;
 }
 .tabs {
   display: flex;

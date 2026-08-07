@@ -22,17 +22,24 @@ onMounted(async () => {
     loading.value = false
   }
 })
+
+function goHome() {
+  window.location.hash = '#/gallery'
+}
 </script>
 
 <template>
   <div class="profile">
-    <h2>个人主页</h2>
+    <div class="head">
+      <h2>个人主页</h2>
+      <button class="primary" @click="goHome">返回首页</button>
+    </div>
     <div class="info">
       <p>昵称：{{ user.name || '（未设置）' }}</p>
       <p>邮箱：{{ user.email }}</p>
-      <p>角色：{{ user.role === 'admin' ? '管理员' : '普通用户' }}</p>
+      <p>角色：{{ user.role === 'admin' ? '管理员' : '真正的粉丝' }}</p>
     </div>
-    <h3>我提交的候选（已批准）</h3>
+    <h3>我提交的候选（已过审）</h3>
     <p v-if="loading">加载中…</p>
     <ul v-else-if="cands.length" class="cand-list">
       <li v-for="c in cands" :key="c.uid">
@@ -42,7 +49,7 @@ onMounted(async () => {
         <span class="note">{{ c.note || '' }}</span>
       </li>
     </ul>
-    <p v-else>暂无已批准的候选，快去拼字吧</p>
+    <p v-else>暂无已过审的候选，快去拼字吧</p>
   </div>
 </template>
 
@@ -51,6 +58,27 @@ onMounted(async () => {
   max-width: 720px;
   margin: 0 auto;
   padding: 24px 20px;
+}
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.head h2 {
+  margin: 0 0 10px;
+}
+.head .primary {
+  padding: 6px 12px;
+  border: 1px solid #2b7de9;
+  border-radius: 4px;
+  background: #2b7de9;
+  color: #fff;
+  cursor: pointer;
+  font-size: 14px;
+}
+.head .primary:hover {
+  background: #1f66c4;
 }
 .info {
   background: #fff;
