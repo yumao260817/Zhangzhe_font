@@ -71,7 +71,12 @@ onMounted(load)
       <div v-for="c in items" :key="c.uid" class="card">
         <img :src="imgUrl(c.uid)" :alt="c.char" />
         <div class="info">
-          <div class="big">「{{ c.char }}」</div>
+          <div class="big">
+            「{{ c.char }}」
+            <span class="src-tag" :class="c.source === 'original' ? 'orig' : 'comp'">
+              {{ c.source === 'original' ? '原字' : '拼字' }}
+            </span>
+          </div>
           <div>{{ c.author || '佚名' }} · {{ c.created_at?.slice(0, 10) }}</div>
           <div v-if="c.note" class="note">{{ c.note }}</div>
           <div class="row">
@@ -142,6 +147,20 @@ onMounted(load)
 }
 .note {
   color: #8a6d3b;
+}
+.src-tag {
+  font-size: 11px;
+  font-weight: 400;
+  color: #fff;
+  padding: 1px 6px;
+  border-radius: 3px;
+  margin-left: 6px;
+}
+.src-tag.orig {
+  background: #2b7de9;
+}
+.src-tag.comp {
+  background: #c62828;
 }
 .row {
   display: flex;

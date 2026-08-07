@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from .paths import PUZZLE_PIECES, PUZZLE_CANDIDATES
+from .paths import PUZZLE_PIECES, PUZZLE_CANDIDATES, PUZZLE_SOURCES
 from .gb2312 import level1_chars
 from . import store
 
@@ -158,8 +158,16 @@ def render_svg(pieces: list[dict], png_b64: str) -> str:
     )
 
 
-def save_candidate(char: str, pieces: list[dict], author: str, note: str = "", png_data: bytes = b"") -> dict:
-    """校验 + 存项目与成品，入库 pending。png_data 为前端所见即所得渲染的合并图（必填）。"""
+def save_candidate(
+    char: str,
+    pieces: list[dict],
+    author: str,
+    note: str = "",
+    png_data: bytes = b"",
+    source_png: bytes | None = None,
+) -> dict:
+    """校验 + 存项目与成品，入库 pending。png_data 为前端所见即所得渲染的合并图（必填）。
+    source_png 为「上传出处」整字证据图：提供则标记 original（原字），否则 composed（拼字）。"""
     if char not in LEVEL1:
         raise ValueError(f"目标字不在一级字集: {char}")
     if len(pieces) > 64:
@@ -174,6 +182,19 @@ def save_candidate(char: str, pieces: list[dict], author: str, note: str = "", p
         raise ValueError("PNG 数据不是有效图片")
     if img.size != (GRID, GRID):
         raise ValueError(f"PNG 尺寸必须为 {GRID}×{GRID}")
+    source = "composed"
+    source_path = None
+    if source_png:
+        if len(source_png) > MAX_PIECE_BYTES * 3:
+            raise ValueError("出处图超过大小上限")
+        try:
+            src_img = _imread_bytes(source_png)
+        except Exception:
+            raise ValueError("出处图不是有效图片")
+        if src_img.size != (GRID, GRID):
+            # 出处图为证据，不强制 512×512，但校验可解码即可；若恰好 512 则原样
+            pass
+        source = "original"
     uid = uuid.uuid4().hex[:12]
     cand_dir = PUZZLE_CANDIDATES / char
     cand_dir.mkdir(parents=True, exist_ok=True)
@@ -189,6 +210,11 @@ def save_candidate(char: str, pieces: list[dict], author: str, note: str = "", p
     proj_p = cand_dir / f"{uid}.json"
     png_p.write_bytes(png)
     svg_p.write_text(svg, encoding="utf-8")
+    src_p = None
+    if source == "original":
+        src_p = PUZZLE_SOURCES / f"{uid}.png"
+        src_p.parent.mkdir(parents=True, exist_ok=True)
+        src_p.write_bytes(source_png)
     proj_p.write_text(
         json.dumps(
             {
@@ -197,6 +223,7 @@ def save_candidate(char: str, pieces: list[dict], author: str, note: str = "", p
                 "author": author,
                 "note": note,
                 "png_source": "frontend",
+                "source": source,
             },
             ensure_ascii=False,
         ),
@@ -205,23 +232,23 @@ def save_candidate(char: str, pieces: list[dict], author: str, note: str = "", p
 
     with store.db() as conn:
         conn.execute(
-            "INSERT INTO candidates (char, uid, author, status, png_path, svg_path, project_path, note) "
-            "VALUES (?, ?, ?, 'pending', ?, ?, ?, ?)",
-            (char, uid, author, str(png_p), str(svg_p), str(proj_p), note),
+            "INSERT INTO candidates (char, uid, author, status, png_path, svg_path, project_path, source, source_path, note) "
+            "VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)",
+            (char, uid, author, str(png_p), str(svg_p), str(proj_p), source, str(src_p) if src_p else None, note),
         )
-    return {"id": uid, "char": char, "status": "pending"}
+    return {"id": uid, "char": char, "status": "pending", "source": source}
 
 
 def list_candidates(char: str, status: str | None = None) -> list[dict]:
     conn = store.connect()
     if status:
         rows = conn.execute(
-            "SELECT id, char, uid, author, status, note, created_at FROM candidates WHERE char = ? AND status = ? ORDER BY id",
+            "SELECT id, char, uid, author, status, source, note, created_at FROM candidates WHERE char = ? AND status = ? ORDER BY id",
             (char, status),
         ).fetchall()
     else:
         rows = conn.execute(
-            "SELECT id, char, uid, author, status, note, created_at FROM candidates WHERE char = ? ORDER BY id",
+            "SELECT id, char, uid, author, status, source, note, created_at FROM candidates WHERE char = ? ORDER BY id",
             (char,),
         ).fetchall()
     conn.close()
@@ -232,7 +259,7 @@ def all_candidates(status: str | None = None, limit: int = 200) -> list[dict]:
     conn = store.connect()
     if status:
         rows = conn.execute(
-            "SELECT id, char, uid, author, status, note, created_at FROM candidates WHERE status = ? ORDER BY id DESC LIMIT ?",
+            "SELECT id, char, uid, author, status, source, note, created_at FROM candidates WHERE status = ? ORDER BY id DESC LIMIT ?",
             (status, limit),
         ).fetchall()
     else:

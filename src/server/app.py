@@ -188,6 +188,7 @@ def make_app(config: str | None = None) -> FastAPI:
         note: str = Form(""),
         pieces: str = Form(""),
         file: UploadFile = File(...),
+        source: UploadFile | None = File(None),
         authorization: str | None = Header(None),
     ):
         user = auth.user_by_token(_bearer(authorization))
@@ -210,10 +211,15 @@ def make_app(config: str | None = None) -> FastAPI:
         png_data = await file.read()
         if not png_data:
             raise HTTPException(status_code=400, detail="PNG 文件为空")
+        source_png = None
+        if source is not None:
+            source_png = await source.read()
+            if not source_png:
+                raise HTTPException(status_code=400, detail="出处图文件为空")
         try:
             # 署名强制使用登录用户，防止伪造
             author = user.get("name") or user["email"]
-            return puzzle.save_candidate(char, layers, author=author, note=note, png_data=png_data)
+            return puzzle.save_candidate(char, layers, author=author, note=note, png_data=png_data, source_png=source_png)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:
@@ -280,21 +286,22 @@ def make_app(config: str | None = None) -> FastAPI:
                 {
                     "char": c,
                     "handwritten": c in hand,
-                    "approved_uid": approved.get(c),
+                    "approved_uid": approved.get(c, {}).get("uid"),
+                    "approved_source": approved.get(c, {}).get("source"),
                 }
                 for c in chars
             ],
         }
 
     def _approved_uids() -> dict:
-        """char -> 最新 approved 候选 uid"""
+        """char -> 最新 approved 候选信息 {uid, source}"""
         with store.db() as conn:
             rows = conn.execute(
-                "SELECT c.char AS char, c.uid AS uid FROM candidates c "
+                "SELECT c.char AS char, c.uid AS uid, c.source AS source FROM candidates c "
                 "JOIN (SELECT char, MAX(id) AS mid FROM candidates WHERE status='approved' GROUP BY char) m "
                 "ON c.id = m.mid"
             ).fetchall()
-        return {r["char"]: r["uid"] for r in rows}
+        return {r["char"]: {"uid": r["uid"], "source": r["source"]} for r in rows}
 
     @app.get("/api/gallery")
     def gallery():
@@ -302,12 +309,13 @@ def make_app(config: str | None = None) -> FastAPI:
         approved = _approved_uids()
         out = []
         for c in level1_chars():
-            uid = approved.get(c)
+            info = approved.get(c, {})
             out.append(
                 {
                     "char": c,
                     "handwritten": c in hand,
-                    "approved_uid": uid,
+                    "approved_uid": info.get("uid"),
+                    "approved_source": info.get("source"),
                 }
             )
         return out

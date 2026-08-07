@@ -18,6 +18,8 @@ const loading = ref(false)
 const message = ref('')
 const exporting = ref(false)
 const pendingChars = ref([])
+const sourceImg = ref(null)
+const sourceName = ref('')
 
 let seq = 0
 
@@ -67,6 +69,45 @@ async function uploadFiles(fileList) {
 
 function onFileChange(e) {
   uploadFiles(e.target.files)
+}
+
+async function onSourceChange(e) {
+  const file = e.target.files && e.target.files[0]
+  if (!file) return
+  try {
+    sourceImg.value = await compressImage(file)
+    sourceName.value = file.name
+    message.value = ''
+  } catch (err) {
+    sourceImg.value = null
+    sourceName.value = ''
+    message.value = `出处图读取失败: ${err.message}`
+  }
+}
+
+// 压缩：最长边限制 1024，转 PNG blob
+async function compressImage(file) {
+  const url = await readFileAsDataURL(file)
+  const img = new Image()
+  await new Promise((resolve, reject) => {
+    img.onload = resolve
+    img.onerror = () => reject(new Error('图片解析失败'))
+    img.src = url
+  })
+  const MAX = 1024
+  let { naturalWidth: w, naturalHeight: h } = img
+  if (w > MAX || h > MAX) {
+    const k = Math.min(MAX / w, MAX / h)
+    w = Math.round(w * k)
+    h = Math.round(h * k)
+  }
+  const canvas = document.createElement('canvas')
+  canvas.width = w
+  canvas.height = h
+  canvas.getContext('2d').drawImage(img, 0, 0, w, h)
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'))
+  if (!blob) throw new Error('压缩失败')
+  return blob
 }
 
 function dropHandler(e) {
@@ -174,6 +215,7 @@ async function exportLayer() {
     const fd = new FormData()
     fd.append('note', note.value)
     fd.append('file', blob, 'render.png')
+    if (sourceImg.value) fd.append('source', sourceImg.value, 'source.png')
     const res = await api(`/api/char/${encodeURIComponent(char.value.trim())}/submit`, { method: 'POST', body: fd })
     const body = await res.json()
     if (!res.ok) throw new Error(body.detail || '导出失败')
@@ -190,19 +232,18 @@ function reset() {
   layers.value = []
   selectedId.value = null
   note.value = ''
+  sourceImg.value = null
+  sourceName.value = ''
+}
+
+function goGallery() {
+  window.location.hash = '#/gallery'
 }
 </script>
 
 <template>
   <div class="workspace">
-    <div v-if="pendingChars.length" class="pending-banner">
-      <span class="pb-label">待制作（每次刷新随机 5 个）：</span>
-      <button v-for="c in pendingChars" :key="c.char" class="pb-char" @click="usePending(c.char)">
-        {{ c.char }}
-      </button>
-    </div>
     <div class="left">
-      <h2>苟岂协作字体制作平台 · 拼字</h2>
       <div class="field">
         <label>目标字</label>
         <div class="row">
@@ -218,8 +259,20 @@ function reset() {
       </div>
 
       <div class="field">
-        <label>添加部件（本地上传，仅前端处理；可多选/拖拽）</label>
-        <input type="file" accept="image/png" multiple @change="onFileChange" />
+        <label class="upload-btn">
+          添加部件
+          <input type="file" accept="image/png" multiple @change="onFileChange" />
+        </label>
+        <p class="hint">支持多选，或直接拖拽到画布中</p>
+      </div>
+
+      <div class="field">
+        <label class="upload-btn source-btn">
+          上传出处
+          <input type="file" accept="image/*" @change="onSourceChange" />
+        </label>
+        <p class="hint">上传整字原图作为审核证据（可选，过大将自动压缩）；未上传的提交将标记为「拼字」</p>
+        <p v-if="sourceName" class="source-note">已选择出处：{{ sourceName }}</p>
       </div>
 
       <div v-if="selected" class="tools">
@@ -251,7 +304,8 @@ function reset() {
           <button @click="settleIntoCenter">全部归零</button>
         </div>
       </div>
-      <p v-else class="hint">点击画布中的图层可选中操作</p>
+      <p class="hint">点击画布中的图层可选中操作</p>
+      <button class="primary" @click="goGallery">返回首页</button>
     </div>
 
     <div class="right">
@@ -270,13 +324,20 @@ function reset() {
         />
       </div>
       <div class="exportbar">
-        <input v-model="note" placeholder="备注（可选）" />
+        <!-- <input v-model="note" placeholder="备注（可选）" /> -->
         <button class="primary" @click="exportLayer" :disabled="exporting">
-          {{ exporting ? '导出中…' : '导出 PNG + SVG' }}
+          {{ exporting ? '提交中…' : '提交' }}
         </button>
-        <button @click="reset">清空</button>
+        <button class="btn-clear" @click="reset">清空</button>
       </div>
       <p v-if="message" :class="message.startsWith('已') ? 'msg-ok' : 'msg-err'">{{ message }}</p>
+    </div>
+
+    <div v-if="pendingChars.length" class="pending-banner">
+      <span class="pb-label">你也许还想试试：</span>
+      <button v-for="c in pendingChars" :key="c.char" class="pb-char" @click="usePending(c.char)">
+        {{ c.char }}
+      </button>
     </div>
   </div>
 </template>
@@ -318,6 +379,16 @@ function reset() {
 }
 .left {
   flex: 0 0 280px;
+  display: flex;
+  flex-direction: column;
+}
+.left .field,
+.left .tools,
+.left > .hint {
+  flex-shrink: 0;
+}
+.left > button {
+  margin-top: auto;
 }
 .field {
   margin-bottom: 16px;
@@ -385,6 +456,34 @@ button.danger {
 .hint {
   color: #888;
   font-size: 13px;
+}
+.field label.upload-btn {
+  display: inline-block;
+  width: auto;
+  padding: 6px 12px;
+  border: 1px solid #2b7de9;
+  border-radius: 4px;
+  background: #2b7de9;
+  color: #fff;
+  cursor: pointer;
+  font-size: 14px;
+}
+.upload-btn input[type='file'] {
+  display: none;
+}
+.source-btn {
+  background: #6a4fa3;
+  border-color: #6a4fa3;
+}
+.source-note {
+  font-size: 13px;
+  color: #2e7d32;
+  margin-top: 4px;
+}
+.btn-clear {
+  background: #c62828;
+  color: #fff;
+  border-color: #c62828;
 }
 .right {
   flex: 1;

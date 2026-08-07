@@ -32,6 +32,8 @@ CREATE TABLE IF NOT EXISTS candidates (
   png_path TEXT,
   svg_path TEXT,
   project_path TEXT,
+  source TEXT NOT NULL DEFAULT 'composed',
+  source_path TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
   reviewed_at TEXT
 );
@@ -82,6 +84,11 @@ def init_db() -> None:
     cols = [r["name"] for r in conn.execute("PRAGMA table_info(review_log)").fetchall()]
     if "reviewer" not in cols:
         conn.execute("ALTER TABLE review_log ADD COLUMN reviewer TEXT")
+    cand_cols = [r["name"] for r in conn.execute("PRAGMA table_info(candidates)").fetchall()]
+    if "source" not in cand_cols:
+        conn.execute("ALTER TABLE candidates ADD COLUMN source TEXT NOT NULL DEFAULT 'composed'")
+    if "source_path" not in cand_cols:
+        conn.execute("ALTER TABLE candidates ADD COLUMN source_path TEXT")
     # 查询索引（P2-2）
     conn.execute("CREATE INDEX IF NOT EXISTS idx_cand_char ON candidates(char)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_cand_status ON candidates(status)")

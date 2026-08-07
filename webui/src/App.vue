@@ -4,6 +4,7 @@ import PuzzleWorkspace from './views/PuzzleWorkspace.vue'
 import GalleryView from './views/GalleryView.vue'
 import AdminView from './views/AdminView.vue'
 import AuthView from './views/AuthView.vue'
+import ProfileView from './views/ProfileView.vue'
 import { api, getToken, setToken } from './auth.js'
 
 const view = ref('gallery')
@@ -20,6 +21,8 @@ function parseHash() {
     view.value = 'admin'
   } else if (seg === 'login') {
     view.value = 'login'
+  } else if (seg === 'profile') {
+    view.value = 'profile'
   } else {
     view.value = 'gallery'
   }
@@ -76,8 +79,14 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', parseHash))
     <header>
       <h1>苟岂开源字体协作平台</h1>
       <span v-if="user" class="who">
-        {{ user.name || user.email }}
-        <em v-if="user.role === 'admin'">（管理员）</em>
+        <a href="#/profile" @click.prevent="navigate('profile')">{{ user.name || user.email }}</a>
+        <a
+          v-if="user.role === 'admin'"
+          class="admin-banner"
+          href="#/admin"
+          @click.prevent="navigate('admin')"
+          >后台审核</a
+        >
         <a href="#" @click.prevent="logout">退出</a>
       </span>
       <span v-else class="who">
@@ -89,6 +98,7 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', parseHash))
       <PuzzleWorkspace v-else-if="view === 'workspace'" :initial-char="targetChar" />
       <AdminView v-else-if="view === 'admin' && user && user.role === 'admin'" />
       <AuthView v-else-if="view === 'login'" @authed="onAuthed" />
+      <ProfileView v-else-if="view === 'profile' && user" :user="user" />
       <div v-else class="no-access">
         <p>管理页面需要管理员账号登录。</p>
         <a href="#/login" @click="navigate('login')">去登录</a>
@@ -108,26 +118,51 @@ body {
   color: #222;
 }
 header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  height: 52px;
   background: #fff;
   border-bottom: 1px solid #e0e0e0;
-  padding: 12px 20px;
+  padding: 0 20px;
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 16px;
 }
 header h1 {
   font-size: 18px;
   margin: 0;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+.admin-banner {
+  display: inline-block;
+  padding: 5px 16px;
+  background: #2b7de9;
+  border-radius: 4px;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 600;
+}
+.who a.admin-banner {
+  color: #fff;
+}
+.who a.admin-banner:hover {
+  background: #1f66c4;
 }
 .who {
   font-size: 13px;
   color: #444;
-  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .who a {
   color: #2b7de9;
   text-decoration: none;
-  margin-left: 6px;
 }
 .no-access {
   padding: 60px;

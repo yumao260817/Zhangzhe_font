@@ -95,11 +95,15 @@ function open(c) {
   emit('open-char', c.char)
 }
 
+function scrollTop() {
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
 onMounted(loadAll)
 </script>
 
 <template>
-  <div class="gallery">
+  <div>
     <div class="toolbar">
       <h2>字库（{{ stats.total }} 字 / 已有 {{ stats.done }}）</h2>
       <input v-model="query" placeholder="输入汉字或拼音，如：张 / zhang" />
@@ -110,6 +114,7 @@ onMounted(loadAll)
         <button :class="{ active: filter === 'missing' }" @click="filter = 'missing'">待做</button>
       </div>
     </div>
+    <div class="gallery">
     <p v-if="loading">加载中…</p>
     <p v-if="error" class="err">错误：{{ error }}</p>
 
@@ -129,7 +134,16 @@ onMounted(loadAll)
         />
         <img v-else :src="placeholder(c)" :alt="c.char" />
         <span class="lbl">{{ c.char }}</span>
+        <span
+          v-if="c.handwritten || c.approved_uid"
+          class="src-tag"
+          :class="c.handwritten || c.approved_source === 'original' ? 'orig' : 'comp'"
+          >{{ c.handwritten || c.approved_source === 'original' ? '原字' : '拼字' }}</span
+        >
       </button>
+    </div>
+
+    <button class="back-top" @click="scrollTop">回到顶部</button>
     </div>
   </div>
 </template>
@@ -137,14 +151,21 @@ onMounted(loadAll)
 <style scoped>
 .gallery {
   padding: 20px;
-  max-width: 1200px;
+  max-width: 1240px;
+  margin: 0 auto;
 }
 .toolbar {
+  position: sticky;
+  top: 52px;
+  z-index: 90;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 14px;
-  margin-bottom: 14px;
   flex-wrap: wrap;
+  background: #f5f6f8;
+  padding: 10px 20px;
+  border-bottom: 1px solid #e0e0e0;
 }
 .toolbar h2 {
   margin: 0;
@@ -177,19 +198,21 @@ onMounted(loadAll)
   border-color: #2b7de9;
 }
 .grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
-  gap: 6px;
+  column-width: 120px;
+  column-gap: 8px;
 }
 .cell {
   position: relative;
+  display: block;
+  width: 100%;
+  margin: 0 0 8px;
   padding: 0;
   border: 1px solid #e0e0e0;
   border-radius: 5px;
   background: #fff;
   cursor: pointer;
-  aspect-ratio: 1;
   overflow: hidden;
+  break-inside: avoid;
 }
 .cell:hover {
   border-color: #2b7de9;
@@ -197,7 +220,7 @@ onMounted(loadAll)
 }
 .cell img {
   width: 100%;
-  height: 100%;
+  aspect-ratio: 1 / 1;
   object-fit: contain;
   display: block;
 }
@@ -206,17 +229,50 @@ onMounted(loadAll)
 }
 .lbl {
   position: absolute;
-  left: 2px;
-  bottom: 1px;
-  font-size: 10px;
+  left: 3px;
+  bottom: 2px;
+  font-size: 12px;
   color: #888;
   background: rgba(255, 255, 255, 0.75);
-  padding: 0 3px;
+  padding: 0 4px;
   border-radius: 2px;
   pointer-events: none;
   font-family: SimSun, 宋体, serif;
 }
+.src-tag {
+  position: absolute;
+  right: 3px;
+  bottom: 2px;
+  font-size: 11px;
+  padding: 0 4px;
+  border-radius: 2px;
+  pointer-events: none;
+  color: #fff;
+}
+.src-tag.orig {
+  background: rgba(43, 125, 233, 0.85);
+}
+.src-tag.comp {
+  background: rgba(198, 40, 40, 0.85);
+}
 .err {
   color: #c62828;
+}
+.back-top {
+  position: fixed;
+  right: 280px;
+  bottom: 7vh;
+  z-index: 10;
+  padding: 8px 24px;
+  border: 1px solid #2b7de9;
+  border-radius: 20px;
+  background: #2b7de9;
+  color: #fff;
+  cursor: pointer;
+  font-size: 13px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+.back-top:hover {
+  background: #1f66c4;
 }
 </style>
