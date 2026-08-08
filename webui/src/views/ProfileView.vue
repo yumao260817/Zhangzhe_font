@@ -37,7 +37,6 @@ function goHome() {
     <div class="info">
       <p>昵称：{{ user.name || '（未设置）' }}</p>
       <p>邮箱：{{ user.email }}</p>
-      <p>角色：{{ user.role === 'admin' ? '管理员' : '真正的粉丝' }}</p>
     </div>
     <h3>我提交的候选（已过审）</h3>
     <p v-if="loading">加载中…</p>
