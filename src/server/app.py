@@ -1,5 +1,3 @@
-import hmac
-import os
 import sqlite3
 from pathlib import Path
 
@@ -25,20 +23,6 @@ def _load_config(path: Path | None) -> dict:
         return {}
 
 
-def _admin_token(cfg: dict) -> str:
-    env = os.environ.get("ZZ_ADMIN_TOKEN")
-    if env:
-        return env
-    server = cfg.get("server", {})
-    if isinstance(server, dict) and server.get("admin_token"):
-        return server["admin_token"]
-    return cfg.get("admin_token") or ""
-
-
-def _check_admin_token(token: str, cfg: dict) -> bool:
-    return bool(token) and hmac.compare_digest(token, _admin_token(cfg))
-
-
 def _bearer(authorization: str | None) -> str | None:
     if not authorization:
         return None
@@ -48,15 +32,13 @@ def _bearer(authorization: str | None) -> str | None:
 
 
 def _admin_ok(token: str, authorization: str | None, cfg: dict) -> bool:
-    """兼容两种管理员凭证：旧 admin_token 口令 或 已登录的管理员账号"""
-    if token and _check_admin_token(token, cfg):
-        return True
-    user = auth.user_by_token(_bearer(authorization))
+    """仅认可登录的管理员账号会话；token 参数为 Bearer 的查询参数形式（图片访问兼容）"""
+    user = auth.user_by_token(_bearer(authorization)) or auth.user_by_token(token)
     return auth.is_admin(user)
 
 
 def _reviewer_name(authorization: str | None) -> str:
-    """从 Bearer 会话取管理员邮箱作为审核人；旧口令审核则留空"""
+    """从 Bearer 会话取管理员邮箱作为审核人"""
     user = auth.user_by_token(_bearer(authorization))
     return user["email"] if user else ""
 
