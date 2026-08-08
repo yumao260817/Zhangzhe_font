@@ -106,12 +106,8 @@ onBeforeUnmount(() => {
   position: relative;
   width: 512px;
   height: 512px;
-  background:
-    linear-gradient(135deg, transparent calc(50% - 0.75px), rgba(200, 70, 50, 0.45) calc(50% - 0.75px) calc(50% + 0.75px), transparent calc(50% + 0.75px)),
-    linear-gradient(45deg, transparent calc(50% - 0.75px), rgba(200, 70, 50, 0.45) calc(50% - 0.75px) calc(50% + 0.75px), transparent calc(50% + 0.75px)),
-    linear-gradient(0deg, transparent calc(50% - 0.75px), rgba(200, 70, 50, 0.45) calc(50% - 0.75px) calc(50% + 0.75px), transparent calc(50% + 0.75px)),
-    linear-gradient(90deg, transparent calc(50% - 0.75px), rgba(200, 70, 50, 0.45) calc(50% - 0.75px) calc(50% + 0.75px), transparent calc(50% + 0.75px)),
-    #fff8ec;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='512' height='512'><line x1='0' y1='256' x2='512' y2='256' stroke='rgba(200,70,50,0.45)' stroke-width='1.5'/><line x1='256' y1='0' x2='256' y2='512' stroke='rgba(200,70,50,0.45)' stroke-width='1.5'/><line x1='0' y1='0' x2='512' y2='512' stroke='rgba(200,70,50,0.45)' stroke-width='1.5' stroke-dasharray='14 12'/><line x1='512' y1='0' x2='0' y2='512' stroke='rgba(200,70,50,0.45)' stroke-width='1.5' stroke-dasharray='14 12'/></svg>");
+  background-color: #fff8ec;
   border: 1px solid rgba(200, 70, 50, 0.7);
   border-radius: 6px;
   overflow: hidden;
