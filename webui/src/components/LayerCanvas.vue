@@ -107,11 +107,12 @@ onBeforeUnmount(() => {
   width: 512px;
   height: 512px;
   background:
-    linear-gradient(45deg, #f2f2f2 25%, transparent 25%, transparent 75%, #f2f2f2 75%),
-    linear-gradient(45deg, #f2f2f2 25%, #fff 25%, #fff 75%, #f2f2f2 75%);
-  background-size: 16px 16px;
-  background-position: 0 0, 8px 8px;
-  border: 1px solid #ccc;
+    linear-gradient(135deg, transparent calc(50% - 0.75px), rgba(200, 70, 50, 0.45) calc(50% - 0.75px) calc(50% + 0.75px), transparent calc(50% + 0.75px)),
+    linear-gradient(45deg, transparent calc(50% - 0.75px), rgba(200, 70, 50, 0.45) calc(50% - 0.75px) calc(50% + 0.75px), transparent calc(50% + 0.75px)),
+    linear-gradient(0deg, transparent calc(50% - 0.75px), rgba(200, 70, 50, 0.45) calc(50% - 0.75px) calc(50% + 0.75px), transparent calc(50% + 0.75px)),
+    linear-gradient(90deg, transparent calc(50% - 0.75px), rgba(200, 70, 50, 0.45) calc(50% - 0.75px) calc(50% + 0.75px), transparent calc(50% + 0.75px)),
+    #fff8ec;
+  border: 1px solid rgba(200, 70, 50, 0.7);
   border-radius: 6px;
   overflow: hidden;
   user-select: none;
