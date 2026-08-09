@@ -58,21 +58,28 @@ function onPointerMove(e) {
     const p = localPoint(e)
     const layer = props.layers.find((l) => l.id === drag.value.id)
     if (!layer) return
-    emit('update', { ...layer, x: Math.round(p.x - drag.value.dx), y: Math.round(p.y - drag.value.dy) })
+    const maxX = Math.max(0, canvasSize - layer.scale_w)
+    const maxY = Math.max(0, canvasSize - layer.scale_h)
+    emit('update', {
+      ...layer,
+      x: Math.max(0, Math.min(Math.round(p.x - drag.value.dx), maxX)),
+      y: Math.max(0, Math.min(Math.round(p.y - drag.value.dy), maxY)),
+    })
   } else if (resize.value) {
     const p = localPoint(e)
     const layer = props.layers.find((l) => l.id === resize.value.id)
     if (!layer) return
     const r = resize.value
+    const ratio = layer.h / layer.w
     const d = Math.max((p.x - r.sx) * r.dx, (p.y - r.sy) * r.dy)
-    const w1 = Math.max(8, Math.min(canvasSize, Math.round(r.startW + d)))
-    const h1 = Math.max(8, Math.min(canvasSize, Math.round(w1 * (layer.h / layer.w))))
-    const dw = w1 - r.startW
-    const dh = h1 - r.startH
-    const maxX = Math.max(0, canvasSize - w1)
-    const maxY = Math.max(0, canvasSize - h1)
-    const x1 = Math.max(0, Math.min(r.dx === -1 ? Math.round(r.startX - dw) : layer.x, maxX))
-    const y1 = Math.max(0, Math.min(r.dy === -1 ? Math.round(r.startY - dh) : layer.y, maxY))
+    // 锚点侧边固定；移动侧边触及画布边框即停止缩放
+    const maxW = r.dx === 1 ? canvasSize - r.startX : r.startX + r.startW
+    const maxH = r.dy === 1 ? canvasSize - r.startY : r.startY + r.startH
+    const wLimit = Math.min(maxW, maxH / ratio)
+    const w1 = Math.max(8, Math.min(Math.round(r.startW + d), Math.round(wLimit)))
+    const h1 = Math.max(8, Math.round(w1 * ratio))
+    const x1 = r.dx === 1 ? r.startX : r.startX + r.startW - w1
+    const y1 = r.dy === 1 ? r.startY : r.startY + r.startH - h1
     emit('update', { ...layer, x: x1, y: y1, scale_w: w1, scale_h: h1 })
   }
 }
