@@ -37,6 +37,7 @@ function readFileAsDataURL(file) {
 }
 
 async function uploadFiles(fileList) {
+  let cursorY = 0
   for (const file of fileList) {
     try {
       // 部件仅在前端处理，不上传后台
@@ -62,13 +63,14 @@ async function uploadFiles(fileList) {
         url,
         w: w0,
         h: h0,
-        x: 180,
-        y: 180,
+        x: Math.round((512 - sw) / 2),
+        y: cursorY,
         scale_w: sw,
         scale_h: sh,
         angle: 0,
         flip: false,
       })
+      cursorY += sh + 8
       selectedId.value = id
     } catch (err) {
       message.value = `${file.name}: ${err.message}`
