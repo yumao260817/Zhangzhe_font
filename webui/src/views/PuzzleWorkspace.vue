@@ -278,9 +278,6 @@ function goGallery() {
             />
           </div>
           <div class="row">
-            <button @click="updateLayer({ ...selected, flip: !selected.flip })">翻转</button>
-            <button @click="updateLayer({ ...selected, angle: (selected.angle + 90) % 360 })">旋转90°</button>
-            <button @click="updateLayer({ ...selected, angle: (selected.angle - 90) % 360 })">反向90°</button>
             <button class="danger" @click="deleteLayer(selected.id)">删除</button>
           </div>
           <div class="row">
