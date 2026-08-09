@@ -243,42 +243,6 @@ function goGallery() {
 
 <template>
   <div class="workspace">
-    <div class="left">
-      <div class="field">
-        <label>目标字</label>
-        <div class="row">
-          <input v-model="char" maxlength="1" placeholder="如：张" @keyup.enter="queryChar" />
-          <button @click="queryChar" :disabled="loading">查询</button>
-        </div>
-        <div v-if="charInfo" class="charinfo">
-          <span :class="charInfo.handwritten ? 'ok' : 'no'">
-            {{ charInfo.handwritten ? '已有手写原迹' : '缺手写' }}
-          </span>
-          <span>待审 {{ charInfo.pending.length }} / 已过审 {{ charInfo.approved.length }}</span>
-        </div>
-      </div>
-
-      <div class="field">
-        <label class="upload-btn">
-          添加部件
-          <input type="file" accept="image/png" multiple @change="onFileChange" />
-        </label>
-        <p class="hint">你可以直接上传白底黑字的整字<br>也可以用偏旁部首拼接<br>支持多选，或直接拖拽到画布中</p>
-      </div>
-
-      <div class="field">
-        <label class="upload-btn source-btn">
-          上传出处
-          <input type="file" accept="image/*" @change="onSourceChange" />
-        </label>
-        <p class="hint">此处上传整字原图作为审核证据（可选，过大将自动压缩）；未上传出处原图的无论是整字还是拼字将一律标记为「拼字」</p>
-        <p v-if="sourceName" class="source-note">已上传出处原图：{{ sourceName }}</p>
-      </div>
-
-      <p class="hint">点击画布中的图层可选中操作</p>
-      <button class="primary" @click="goGallery">返回首页</button>
-    </div>
-
     <div class="right">
       <div class="canvas-area">
         <div
@@ -336,6 +300,42 @@ function goGallery() {
       <p v-if="message" :class="message.startsWith('已') ? 'msg-ok' : 'msg-err'">{{ message }}</p>
     </div>
 
+    <div class="left">
+      <div class="field">
+        <label>目标字</label>
+        <div class="row">
+          <input v-model="char" maxlength="1" placeholder="如：张" @keyup.enter="queryChar" />
+          <button @click="queryChar" :disabled="loading">查询</button>
+        </div>
+        <div v-if="charInfo" class="charinfo">
+          <span :class="charInfo.handwritten ? 'ok' : 'no'">
+            {{ charInfo.handwritten ? '已有手写原迹' : '缺手写' }}
+          </span>
+          <span>待审 {{ charInfo.pending.length }} / 已过审 {{ charInfo.approved.length }}</span>
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="upload-btn">
+          添加部件
+          <input type="file" accept="image/png" multiple @change="onFileChange" />
+        </label>
+        <p class="hint">你可以直接上传整字<br>也可以用偏旁部首拼接<br>支持多选上传，也可直接拖拽到画布中进行编辑<br>建议上传透明背景的PNG素材</p>
+      </div>
+
+      <div class="field">
+        <label class="upload-btn source-btn">
+          上传出处
+          <input type="file" accept="image/*" @change="onSourceChange" />
+        </label>
+        <p class="hint">此处上传整字原图作为审核证据<br>（可选，过大将自动压缩）<br>也可上传自己意临的字，但请自行标记为「拼字」</p>
+        <p v-if="sourceName" class="source-note">已上传出处原图：{{ sourceName }}</p>
+      </div>
+
+      <p class="hint">点击画布中的图层可选中操作</p>
+      <button class="primary" @click="goGallery">返回首页</button>
+    </div>
+
     <div v-if="pendingChars.length" class="pending-banner">
       <span class="pb-label">你也许还想试试：</span>
       <button v-for="c in pendingChars" :key="c.char" class="pb-char" @click="usePending(c.char)">
@@ -351,6 +351,7 @@ function goGallery() {
   gap: 20px;
   padding: 20px;
   flex-wrap: wrap;
+  justify-content: center;
 }
 .pending-banner {
   width: 100%;
@@ -489,7 +490,7 @@ button.danger {
   border-color: #c62828;
 }
 .right {
-  flex: 1;
+  flex: 0 0 auto;
   min-width: 520px;
 }
 .canvas-host {
