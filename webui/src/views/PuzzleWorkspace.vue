@@ -260,20 +260,14 @@ function goGallery() {
           />
         </div>
 
-        <div v-if="selected" class="tools">
+        <div class="tools">
           <h3>图层工具（拖动挪位 / 拖角缩放）</h3>
-          <p>
-            原始 {{ selected.w }}×{{ selected.h }}
-            <span v-if="selected.scale_w !== selected.w || selected.scale_h !== selected.h">
-              → 显示 {{ selected.scale_w }}×{{ selected.scale_h }}
-            </span>
-          </p>
           <div class="row">
-            <button class="danger" @click="deleteLayer(selected.id)">删除</button>
+            <button class="danger" :disabled="!selected" @click="selected && deleteLayer(selected.id)">删除</button>
           </div>
           <div class="row">
-            <button @click="selected && zMove(1)">置上</button>
-            <button @click="selected && zMove(-1)">置下</button>
+            <button :disabled="!selected" @click="selected && zMove(1)">置上</button>
+            <button :disabled="!selected" @click="selected && zMove(-1)">置下</button>
             <button @click="settleIntoCenter">全部归零</button>
           </div>
         </div>
