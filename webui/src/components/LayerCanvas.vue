@@ -39,7 +39,17 @@ function onResizeStart(e, layer, sx, sy) {
   e.stopPropagation()
   emit('select', layer.id)
   const p = localPoint(e)
-  resize.value = { id: layer.id, startW: layer.scale_w, startH: layer.scale_h, sx: p.x, sy: p.y, dx: sx, dy: sy }
+  resize.value = {
+    id: layer.id,
+    startW: layer.scale_w,
+    startH: layer.scale_h,
+    startX: layer.x,
+    startY: layer.y,
+    sx: p.x,
+    sy: p.y,
+    dx: sx,
+    dy: sy,
+  }
   box.value.setPointerCapture(e.pointerId)
 }
 
@@ -59,12 +69,10 @@ function onPointerMove(e) {
     const h1 = Math.max(8, Math.min(canvasSize, Math.round(w1 * (layer.h / layer.w))))
     const dw = w1 - r.startW
     const dh = h1 - r.startH
-    let x1 = r.dx === -1 ? Math.round(layer.x - dw) : layer.x
-    let y1 = r.dy === -1 ? Math.round(layer.y - dh) : layer.y
     const maxX = Math.max(0, canvasSize - w1)
     const maxY = Math.max(0, canvasSize - h1)
-    x1 = Math.max(0, Math.min(x1, maxX))
-    y1 = Math.max(0, Math.min(y1, maxY))
+    const x1 = Math.max(0, Math.min(r.dx === -1 ? Math.round(r.startX - dw) : layer.x, maxX))
+    const y1 = Math.max(0, Math.min(r.dy === -1 ? Math.round(r.startY - dh) : layer.y, maxY))
     emit('update', { ...layer, x: x1, y: y1, scale_w: w1, scale_h: h1 })
   }
 }
