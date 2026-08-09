@@ -215,8 +215,9 @@ onBeforeUnmount(() => {
 })
 
 function onDocPointerDown(e) {
-  // 点击画布以外的区域时取消选中，隐藏素材的缩放手柄
-  if (!e.target.closest('.canvas')) selectedId.value = null
+  // 点击画布以外的区域时取消选中，隐藏素材的缩放手柄（工具面板除外）
+  if (e.target.closest('.canvas') || e.target.closest('.tools')) return
+  selectedId.value = null
 }
 
 async function exportLayer() {
