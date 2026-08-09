@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref } from 'vue'
 
 const props = defineProps({
   layers: { type: Array, default: () => [] },
@@ -32,37 +32,37 @@ function onPointerDown(e, layer) {
   box.value.setPointerCapture(e.pointerId)
 }
 
-function onPointerMove(e) {
-  if (!drag.value) return
+const resize = ref(null)
+
+function onResizeStart(e, layer) {
+  e.preventDefault()
+  e.stopPropagation()
+  emit('select', layer.id)
   const p = localPoint(e)
-  const layer = props.layers.find((l) => l.id === drag.value.id)
-  if (!layer) return
-  emit('update', { ...layer, x: Math.round(p.x - drag.value.dx), y: Math.round(p.y - drag.value.dy) })
+  resize.value = { id: layer.id, startW: layer.scale_w, sx: p.x, sy: p.y }
+  box.value.setPointerCapture(e.pointerId)
+}
+
+function onPointerMove(e) {
+  if (drag.value) {
+    const p = localPoint(e)
+    const layer = props.layers.find((l) => l.id === drag.value.id)
+    if (!layer) return
+    emit('update', { ...layer, x: Math.round(p.x - drag.value.dx), y: Math.round(p.y - drag.value.dy) })
+  } else if (resize.value) {
+    const p = localPoint(e)
+    const layer = props.layers.find((l) => l.id === resize.value.id)
+    if (!layer) return
+    const d = Math.max(p.x - resize.value.sx, p.y - resize.value.sy)
+    const w = Math.max(8, Math.min(canvasSize, Math.round(resize.value.startW + d)))
+    emit('update', { ...layer, scale_w: w, scale_h: Math.round(w * (layer.h / layer.w)) })
+  }
 }
 
 function onPointerUp() {
   drag.value = null
+  resize.value = null
 }
-
-function onWheel(e) {
-  if (!props.selectedId) return
-  e.preventDefault()
-  const layer = props.layers.find((l) => l.id === props.selectedId)
-  if (!layer) return
-  const factor = e.deltaY < 0 ? 1.08 : 0.925
-  emit('update', {
-    ...layer,
-    scale_w: Math.max(8, Math.round(layer.scale_w * factor)),
-    scale_h: Math.max(8, Math.round(layer.scale_h * factor)),
-  })
-}
-
-onMounted(() => {
-  if (box.value) box.value.addEventListener('wheel', onWheel, { passive: false })
-})
-onBeforeUnmount(() => {
-  if (box.value) box.value.removeEventListener('wheel', onWheel)
-})
 </script>
 
 <template>
@@ -97,6 +97,7 @@ onBeforeUnmount(() => {
       @pointerdown="(e) => onPointerDown(e, layer)"
     >
       <img :src="layer.url" draggable="false" alt="部件" />
+      <span class="resizer" @pointerdown.stop="(e) => onResizeStart(e, layer)"></span>
     </div>
   </div>
 </template>
@@ -133,5 +134,17 @@ onBeforeUnmount(() => {
   height: 100%;
   pointer-events: none;
   display: block;
+}
+.resizer {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #2b7de9;
+  border-radius: 3px;
+  background: #fff;
+  cursor: nwse-resize;
+  box-sizing: border-box;
 }
 </style>

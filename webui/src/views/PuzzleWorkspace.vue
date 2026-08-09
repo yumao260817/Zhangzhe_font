@@ -261,22 +261,13 @@ function goGallery() {
         </div>
 
         <div v-if="selected" class="tools">
-          <h3>图层工具（滚轮缩放 / 拖动挪位）</h3>
+          <h3>图层工具（拖动挪位 / 拖角缩放）</h3>
           <p>
             原始 {{ selected.w }}×{{ selected.h }}
             <span v-if="selected.scale_w !== selected.w || selected.scale_h !== selected.h">
               → 显示 {{ selected.scale_w }}×{{ selected.scale_h }}
             </span>
           </p>
-          <div class="row">
-            <input
-              type="range"
-              min="10"
-              max="400"
-              :value="selected.scale_w"
-              @input="updateLayer({ ...selected, scale_w: +$event.target.value, scale_h: Math.round(+$event.target.value * (selected.h / selected.w)) })"
-            />
-          </div>
           <div class="row">
             <button class="danger" @click="deleteLayer(selected.id)">删除</button>
           </div>
@@ -317,7 +308,7 @@ function goGallery() {
           添加部件
           <input type="file" accept="image/png" multiple @change="onFileChange" />
         </label>
-        <p class="hint">你可以直接上传整字<br>也可以用偏旁部首拼接<br>支持多选上传，也可直接拖拽到画布中进行编辑<br>建议上传透明背景的PNG素材</p>
+        <p class="hint">你可以直接上传整字<br>也可以用偏旁部首拼接<br>支持多选上传，也可直接拖拽到画布中进行编辑<br>建议上传透明背景的PNG素材<br>点击画布中的图层可选中操作</p>
       </div>
 
       <div class="field">
@@ -329,7 +320,7 @@ function goGallery() {
         <p v-if="sourceName" class="source-note">已上传出处原图：{{ sourceName }}</p>
       </div>
 
-      <p class="hint">点击画布中的图层可选中操作</p>
+      <!-- <p class="hint">点击画布中的图层可选中操作</p> -->
       <button class="primary" @click="goGallery">返回首页</button>
     </div>
 
