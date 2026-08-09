@@ -227,6 +227,23 @@ def make_app(config: str | None = None) -> FastAPI:
             return puzzle.all_candidates(status)
         return puzzle.all_candidates("approved")
 
+    @app.get("/api/my/candidates")
+    def my_candidates(authorization: str | None = Header(None), token: str = ""):
+        """当前登录用户提交的全部候选（含各审核状态）"""
+        user = auth.user_by_token(_bearer(authorization)) or auth.user_by_token(token)
+        if not user:
+            raise HTTPException(status_code=401, detail="需要登录")
+        email = user["email"]
+        name = user.get("name") or ""
+        with store.db() as conn:
+            rows = conn.execute(
+                "SELECT uid, char, status, note, created_at, reviewed_at"
+                " FROM candidates WHERE author = ? OR author = ?"
+                " ORDER BY created_at DESC",
+                (email, name),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
     @app.get("/api/random-pending")
     def random_pending(n: int = 5, token: str = ""):
         from ..paths import STDSRC

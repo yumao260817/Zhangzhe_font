@@ -9,12 +9,13 @@ const props = defineProps({
 const cands = ref([])
 const loading = ref(true)
 
+const STATUS_LABEL = { pending: '待审核', approved: '已过审', rejected: '未过审' }
+
 onMounted(async () => {
   try {
-    const res = await api('/api/candidates?status=approved')
+    const res = await api('/api/my/candidates')
     if (res.ok) {
-      const list = await res.json()
-      cands.value = list.filter((c) => c.author === (props.user && props.user.email))
+      cands.value = await res.json()
     }
   } catch (e) {
     /* 忽略加载失败 */
@@ -22,6 +23,10 @@ onMounted(async () => {
     loading.value = false
   }
 })
+
+function byStatus(status) {
+  return cands.value.filter((c) => c.status === status)
+}
 
 function goHome() {
   window.location.hash = '#/gallery'
@@ -38,17 +43,23 @@ function goHome() {
       <p>昵称：{{ user.name || '（未设置）' }}</p>
       <p>邮箱：{{ user.email }}</p>
     </div>
-    <h3>我提交的候选（已过审）</h3>
+    <h3>我提交的字</h3>
     <p v-if="loading">加载中…</p>
-    <ul v-else-if="cands.length" class="cand-list">
-      <li v-for="c in cands" :key="c.uid">
-        <img :src="`/api/candidates/${c.uid}/png`" alt="" />
-        <span class="char">{{ c.char }}</span>
-        <span class="time">{{ c.created_at }}</span>
-        <span class="note">{{ c.note || '' }}</span>
-      </li>
-    </ul>
-    <p v-else>暂无已过审的候选，快去拼字吧</p>
+    <template v-else-if="cands.length">
+      <template v-for="(st, key) in { pending: '待审核', approved: '已过审', rejected: '未过审' }" :key="key">
+        <h4 v-if="byStatus(key).length" :class="`st-${key}`">{{ st }}（{{ byStatus(key).length }}）</h4>
+        <ul v-if="byStatus(key).length" class="cand-list">
+          <li v-for="c in byStatus(key)" :key="c.uid">
+            <img :src="`/api/candidates/${c.uid}/png`" alt="" />
+            <span class="char">{{ c.char }}</span>
+            <span :class="`badge st-${c.status}`">{{ STATUS_LABEL[c.status] }}</span>
+            <span class="time">{{ c.created_at }}</span>
+            <span class="note">{{ c.note || '' }}</span>
+          </li>
+        </ul>
+      </template>
+    </template>
+    <p v-else>暂无提交记录，快去拼字吧</p>
   </div>
 </template>
 
@@ -91,6 +102,35 @@ function goHome() {
 }
 h3 {
   font-size: 15px;
+}
+h4 {
+  font-size: 14px;
+  margin: 14px 0 8px;
+}
+.st-pending {
+  color: #f9a825;
+}
+.st-approved {
+  color: #2e7d32;
+}
+.st-rejected {
+  color: #c62828;
+}
+.badge {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  color: #fff;
+  flex-shrink: 0;
+}
+.badge.st-pending {
+  background: #f9a825;
+}
+.badge.st-approved {
+  background: #2e7d32;
+}
+.badge.st-rejected {
+  background: #c62828;
 }
 .cand-list {
   list-style: none;
