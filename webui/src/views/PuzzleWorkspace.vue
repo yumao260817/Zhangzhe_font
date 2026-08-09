@@ -67,6 +67,10 @@ async function uploadFiles(fileList) {
         y: cursorY,
         scale_w: sw,
         scale_h: sh,
+        init_x: Math.round((512 - sw) / 2),
+        init_y: cursorY,
+        init_w: sw,
+        init_h: sh,
         angle: 0,
         flip: false,
       })
@@ -149,14 +153,14 @@ function zMove(delta) {
   layers.value = arr
 }
 
-function settleIntoCenter() {
-  // 将各图层按原始尺寸居中铺到画布，便于初始布局
-  layers.value = layers.value.map((l, idx) => ({
+function restoreInitial() {
+  // 恢复所有素材到上传时的初始位置与大小
+  layers.value = layers.value.map((l) => ({
     ...l,
-    x: 0,
-    y: 0,
-    scale_w: l.w,
-    scale_h: l.h,
+    x: l.init_x,
+    y: l.init_y,
+    scale_w: l.init_w,
+    scale_h: l.init_h,
   }))
 }
 
@@ -291,7 +295,7 @@ function goGallery() {
           <div class="row">
             <button :disabled="!selected" @click="selected && zMove(1)">置上</button>
             <button :disabled="!selected" @click="selected && zMove(-1)">置下</button>
-            <button @click="settleIntoCenter">全部归零</button>
+            <button @click="restoreInitial">恢复初始</button>
           </div>
         </div>
       </div>
