@@ -48,15 +48,24 @@ async function uploadFiles(fileList) {
         img.src = url
       })
       const id = addKey()
+      const w0 = img.naturalWidth
+      const h0 = img.naturalHeight
+      let sw = w0
+      let sh = h0
+      if (w0 > 512 || h0 > 512) {
+        const k = (512 * 0.7) / Math.max(w0, h0)
+        sw = Math.round(w0 * k)
+        sh = Math.round(h0 * k)
+      }
       layers.value.push({
         id,
         url,
-        w: img.naturalWidth,
-        h: img.naturalHeight,
+        w: w0,
+        h: h0,
         x: 180,
         y: 180,
-        scale_w: img.naturalWidth,
-        scale_h: img.naturalHeight,
+        scale_w: sw,
+        scale_h: sh,
         angle: 0,
         flip: false,
       })
