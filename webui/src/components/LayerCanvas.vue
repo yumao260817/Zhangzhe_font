@@ -34,12 +34,12 @@ function onPointerDown(e, layer) {
 
 const resize = ref(null)
 
-function onResizeStart(e, layer) {
+function onResizeStart(e, layer, sx, sy) {
   e.preventDefault()
   e.stopPropagation()
   emit('select', layer.id)
   const p = localPoint(e)
-  resize.value = { id: layer.id, startW: layer.scale_w, sx: p.x, sy: p.y }
+  resize.value = { id: layer.id, startW: layer.scale_w, sx: p.x, sy: p.y, dx: sx, dy: sy }
   box.value.setPointerCapture(e.pointerId)
 }
 
@@ -53,9 +53,19 @@ function onPointerMove(e) {
     const p = localPoint(e)
     const layer = props.layers.find((l) => l.id === resize.value.id)
     if (!layer) return
-    const d = Math.max(p.x - resize.value.sx, p.y - resize.value.sy)
-    const w = Math.max(8, Math.min(canvasSize, Math.round(resize.value.startW + d)))
-    emit('update', { ...layer, scale_w: w, scale_h: Math.round(w * (layer.h / layer.w)) })
+    const r = resize.value
+    const d = Math.max((p.x - r.sx) * r.dx, (p.y - r.sy) * r.dy)
+    const w1 = Math.max(8, Math.min(canvasSize, Math.round(r.startW + d)))
+    const h1 = Math.round(w1 * (layer.h / layer.w))
+    const dw = w1 - r.startW
+    const dh = h1 - r.startW * (layer.h / layer.w)
+    emit('update', {
+      ...layer,
+      x: r.dx === -1 ? Math.round(layer.x - dw) : layer.x,
+      y: r.dy === -1 ? Math.round(layer.y - dh) : layer.y,
+      scale_w: w1,
+      scale_h: h1,
+    })
   }
 }
 
@@ -97,7 +107,12 @@ function onPointerUp() {
       @pointerdown="(e) => onPointerDown(e, layer)"
     >
       <img :src="layer.url" draggable="false" alt="部件" />
-      <span class="resizer" @pointerdown.stop="(e) => onResizeStart(e, layer)"></span>
+      <template v-if="layer.id === selectedId">
+        <span class="resizer nw" @pointerdown.stop="(e) => onResizeStart(e, layer, -1, -1)"></span>
+        <span class="resizer ne" @pointerdown.stop="(e) => onResizeStart(e, layer, 1, -1)"></span>
+        <span class="resizer sw" @pointerdown.stop="(e) => onResizeStart(e, layer, -1, 1)"></span>
+        <span class="resizer se" @pointerdown.stop="(e) => onResizeStart(e, layer, 1, 1)"></span>
+      </template>
     </div>
   </div>
 </template>
@@ -137,14 +152,31 @@ function onPointerUp() {
 }
 .resizer {
   position: absolute;
-  right: -4px;
-  bottom: -4px;
-  width: 14px;
-  height: 14px;
+  width: 10px;
+  height: 10px;
   border: 2px solid #2b7de9;
-  border-radius: 3px;
   background: #fff;
-  cursor: nwse-resize;
   box-sizing: border-box;
+  z-index: 2;
+}
+.resizer.nw {
+  left: -6px;
+  top: -6px;
+  cursor: nwse-resize;
+}
+.resizer.ne {
+  right: -6px;
+  top: -6px;
+  cursor: nesw-resize;
+}
+.resizer.sw {
+  left: -6px;
+  bottom: -6px;
+  cursor: nesw-resize;
+}
+.resizer.se {
+  right: -6px;
+  bottom: -6px;
+  cursor: nwse-resize;
 }
 </style>

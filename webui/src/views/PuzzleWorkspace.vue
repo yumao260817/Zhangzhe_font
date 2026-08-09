@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import LayerCanvas from '../components/LayerCanvas.vue'
 import { renderCanvas } from '../utils/paint.js'
 import { api } from '../auth.js'
@@ -206,7 +206,18 @@ watch(
   { immediate: true },
 )
 
-onMounted(loadPending)
+onMounted(() => {
+  loadPending()
+  document.addEventListener('pointerdown', onDocPointerDown)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', onDocPointerDown)
+})
+
+function onDocPointerDown(e) {
+  // 点击画布以外的区域时取消选中，隐藏素材的缩放手柄
+  if (!e.target.closest('.canvas')) selectedId.value = null
+}
 
 async function exportLayer() {
   if (!char.value.trim()) {
