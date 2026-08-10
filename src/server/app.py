@@ -325,15 +325,19 @@ def make_app(config: str | None = None) -> FastAPI:
         if not files:
             raise HTTPException(status_code=404, detail="候选不存在")
         png, svg, proj = files
-        # 未审核的只有管理员可见
+        # 未审核的只有管理员可见；提交者本人可见自己的图
         from .. import store as _s
 
         conn = _s.connect()
-        row = conn.execute("SELECT status FROM candidates WHERE uid = ?", (uid,)).fetchone()
+        row = conn.execute("SELECT status, author FROM candidates WHERE uid = ?", (uid,)).fetchone()
         conn.close()
-        status = row["status"] if row else None
+        if row is None:
+            raise HTTPException(status_code=404, detail="候选不存在")
+        status, author = row["status"], row["author"]
         if status != "approved" and not _admin_ok(token, authorization, cfg):
-            raise HTTPException(status_code=403, detail="需要管理员权限")
+            user = auth.user_by_token(_bearer(authorization)) or auth.user_by_token(token)
+            if not user or (user["email"] != author and (user.get("name") or "") != author):
+                raise HTTPException(status_code=403, detail="需要管理员权限")
         return FileResponse(str(png), media_type="image/png")
 
     @app.get("/api/candidates/{uid}/svg")
@@ -345,11 +349,15 @@ def make_app(config: str | None = None) -> FastAPI:
         from .. import store as _s
 
         conn = _s.connect()
-        row = conn.execute("SELECT status FROM candidates WHERE uid = ?", (uid,)).fetchone()
+        row = conn.execute("SELECT status, author FROM candidates WHERE uid = ?", (uid,)).fetchone()
         conn.close()
-        status = row["status"] if row else None
+        if row is None:
+            raise HTTPException(status_code=404, detail="候选不存在")
+        status, author = row["status"], row["author"]
         if status != "approved" and not _admin_ok(token, authorization, cfg):
-            raise HTTPException(status_code=403, detail="需要管理员权限")
+            user = auth.user_by_token(_bearer(authorization)) or auth.user_by_token(token)
+            if not user or (user["email"] != author and (user.get("name") or "") != author):
+                raise HTTPException(status_code=403, detail="需要管理员权限")
         return FileResponse(str(svg), media_type="image/svg+xml")
 
     @app.get("/api/candidates/{uid}/project")

@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { api } from '../auth.js'
+import { api, getToken } from '../auth.js'
 
 const props = defineProps({
   user: { type: Object, default: null },
@@ -50,7 +50,7 @@ function goHome() {
         <h4 v-if="byStatus(key).length" :class="`st-${key}`">{{ st }}（{{ byStatus(key).length }}）</h4>
         <ul v-if="byStatus(key).length" class="cand-list">
           <li v-for="c in byStatus(key)" :key="c.uid">
-            <img :src="`/api/candidates/${c.uid}/png`" alt="" />
+            <img :src="`/api/candidates/${c.uid}/png?token=${getToken()}`" alt="" />
             <span class="char">{{ c.char }}</span>
             <span :class="`badge st-${c.status}`">{{ STATUS_LABEL[c.status] }}</span>
             <span class="time">{{ c.created_at }}</span>
@@ -59,7 +59,7 @@ function goHome() {
         </ul>
       </template>
     </template>
-    <p v-else>暂无提交记录，快去拼字吧</p>
+    <p v-else>暂无提交记录</p>
   </div>
 </template>
 
