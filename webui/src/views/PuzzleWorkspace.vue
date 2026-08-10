@@ -20,6 +20,7 @@ const exporting = ref(false)
 const pendingChars = ref([])
 const sourceImg = ref(null)
 const sourceName = ref('')
+const confirmModal = ref(false)
 
 let seq = 0
 
@@ -224,7 +225,7 @@ function onDocPointerDown(e) {
   selectedId.value = null
 }
 
-async function exportLayer() {
+function openConfirm() {
   if (!char.value.trim()) {
     message.value = '请先输入目标字'
     return
@@ -233,6 +234,10 @@ async function exportLayer() {
     message.value = '画布为空'
     return
   }
+  confirmModal.value = true
+}
+
+async function doSubmit() {
   exporting.value = true
   message.value = ''
   try {
@@ -248,8 +253,11 @@ async function exportLayer() {
     if (!res.ok) throw new Error(body.detail || '导出失败')
     message.value = `已提交 ${body.char} 候选（待管理员审核）`
     await queryChar()
+    confirmModal.value = false
+    window.location.hash = '#/profile'
   } catch (err) {
     message.value = `导出失败: ${err.message}`
+    confirmModal.value = false
   } finally {
     exporting.value = false
   }
@@ -290,23 +298,35 @@ function goGallery() {
         <div class="tools">
           <h3>图层工具（拖动挪位 / 拖角缩放）</h3>
           <div class="row">
-            <button class="danger" :disabled="!selected" @click="selected && deleteLayer(selected.id)">删除</button>
+            <button class="danger" :disabled="!selected" @click="selected && deleteLayer(selected.id)">删除素材</button>
           </div>
           <div class="row">
-            <button :disabled="!selected" @click="selected && zMove(1)">置上</button>
-            <button :disabled="!selected" @click="selected && zMove(-1)">置下</button>
+            <button :disabled="!selected" @click="selected && zMove(1)">上移一层</button>
+            <button :disabled="!selected" @click="selected && zMove(-1)">下移一层</button>
             <button @click="restoreInitial">恢复初始</button>
           </div>
         </div>
       </div>
       <div class="exportbar">
         <!-- <input v-model="note" placeholder="备注（可选）" /> -->
-        <button class="primary" @click="exportLayer" :disabled="exporting">
+        <button class="primary" @click="openConfirm" :disabled="exporting">
           {{ exporting ? '提交中…' : '提交' }}
         </button>
         <button class="btn-clear" @click="reset">清空</button>
       </div>
       <p v-if="message" :class="message.startsWith('已') ? 'msg-ok' : 'msg-err'">{{ message }}</p>
+    </div>
+
+    <div v-if="confirmModal" class="modal-mask" @click.self="confirmModal = false">
+      <div class="modal">
+        <p class="modal-text">感谢同志们对项目做出的贡献，你可以：</p>
+        <div class="modal-actions">
+          <button class="primary" @click="doSubmit" :disabled="exporting">
+            {{ exporting ? '提交中…' : '确认提交' }}
+          </button>
+          <button @click="confirmModal = false">暂不提交</button>
+        </div>
+      </div>
     </div>
 
     <div class="left">
@@ -528,5 +548,33 @@ button.danger {
 }
 .msg-err {
   color: #c62828;
+}
+.modal-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.modal {
+  background: #fff;
+  border-radius: 10px;
+  padding: 28px 32px;
+  max-width: 360px;
+  text-align: center;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
+}
+.modal-text {
+  margin: 0 0 20px;
+  font-size: 15px;
+  color: #333;
+  line-height: 1.6;
+}
+.modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
 }
 </style>
