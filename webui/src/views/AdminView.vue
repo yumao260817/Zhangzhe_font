@@ -1,55 +1,11 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { api, getToken } from '../auth.js'
-
-const props = defineProps({
-  user: { type: Object, default: null },
-})
 
 const items = ref([])
 const tab = ref('pending')
 const loading = ref(false)
 const message = ref('')
-
-const isAdmin = computed(() => props.user && props.user.role === 'admin')
-
-const users = ref([])
-const usersLoading = ref(false)
-const userMsg = ref('')
-
-async function loadUsers() {
-  if (!isAdmin.value) return
-  usersLoading.value = true
-  userMsg.value = ''
-  try {
-    const res = await api('/api/admin/users')
-    if (!res.ok) {
-      userMsg.value = (await res.json().catch(() => ({}))).detail || '成员加载失败'
-      return
-    }
-    users.value = await res.json()
-  } catch (err) {
-    userMsg.value = `成员加载失败: ${err.message}`
-  } finally {
-    usersLoading.value = false
-  }
-}
-
-async function setRole(email, role) {
-  userMsg.value = ''
-  const fd = new FormData()
-  fd.append('email', email)
-  fd.append('role', role)
-  const res = await api('/api/admin/set-role', { method: 'POST', body: fd })
-  const body = await res.json().catch(() => ({}))
-  if (!res.ok) {
-    userMsg.value = body.detail || '操作失败'
-    return
-  }
-  await loadUsers()
-}
-
-const ROLE_LABEL = { admin: '管理员', reviewer: '审核员', user: '粉丝' }
 
 async function load() {
   loading.value = true
@@ -101,10 +57,7 @@ async function act(uid, action) {
   await load()
 }
 
-onMounted(() => {
-  load()
-  loadUsers()
-})
+onMounted(load)
 </script>
 
 <template>
@@ -117,34 +70,6 @@ onMounted(() => {
       <button :class="{ active: tab === 'pending' }" @click="tab = 'pending'; load()">待审核</button>
       <button :class="{ active: tab === 'approved' }" @click="tab = 'approved'; load()">已过审</button>
       <button :class="{ active: tab === 'rejected' }" @click="tab = 'rejected'; load()">已驳回</button>
-    </div>
-    <div v-if="isAdmin" class="users">
-      <h3>成员管理</h3>
-      <p v-if="userMsg" class="msg">{{ userMsg }}</p>
-      <p v-if="usersLoading">加载中…</p>
-      <table v-else class="user-table">
-        <thead>
-          <tr>
-            <th>昵称</th>
-            <th>邮箱</th>
-            <th>角色</th>
-            <th>注册时间</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="u in users" :key="u.id">
-            <td>{{ u.name || '（未设置）' }}</td>
-            <td>{{ u.email }}</td>
-            <td><span class="role-badge" :class="`role-${u.role}`">{{ ROLE_LABEL[u.role] || u.role }}</span></td>
-            <td>{{ u.created_at?.slice(0, 10) }}</td>
-            <td>
-              <button v-if="u.role === 'user'" class="ok" @click="setRole(u.email, 'reviewer')">提升审核员</button>
-              <button v-else-if="u.role === 'reviewer'" class="no" @click="setRole(u.email, 'user')">降为粉丝</button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
     </div>
     <p v-if="message" class="msg">{{ message }}</p>
     <p v-if="loading">加载中…</p>
@@ -218,43 +143,6 @@ onMounted(() => {
   background: #2b7de9;
   color: #fff;
   border-color: #2b7de9;
-}
-.users {
-  background: #fff;
-  border: 1px solid #e0e0e0;
-  border-radius: 8px;
-  padding: 14px 16px;
-  margin-bottom: 16px;
-}
-.users h3 {
-  margin: 0 0 10px;
-  font-size: 15px;
-}
-.user-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-.user-table th,
-.user-table td {
-  text-align: left;
-  padding: 6px 8px;
-  border-bottom: 1px solid #f0f0f0;
-}
-.role-badge {
-  font-size: 12px;
-  padding: 2px 8px;
-  border-radius: 10px;
-  color: #fff;
-}
-.role-admin {
-  background: #2b7de9;
-}
-.role-reviewer {
-  background: #6a4fa3;
-}
-.role-user {
-  background: #888;
 }
 .grid {
   display: grid;

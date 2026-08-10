@@ -3,6 +3,7 @@ import { ref, onMounted, onBeforeUnmount } from 'vue'
 import PuzzleWorkspace from './views/PuzzleWorkspace.vue'
 import GalleryView from './views/GalleryView.vue'
 import AdminView from './views/AdminView.vue'
+import MembersView from './views/MembersView.vue'
 import AuthView from './views/AuthView.vue'
 import ProfileView from './views/ProfileView.vue'
 import { api, getToken, setToken } from './auth.js'
@@ -19,6 +20,8 @@ function parseHash() {
     targetChar.value = ch ? decodeURIComponent(ch) : ''
   } else if (seg === 'admin') {
     view.value = 'admin'
+  } else if (seg === 'members') {
+    view.value = 'members'
   } else if (seg === 'login') {
     view.value = 'login'
   } else if (seg === 'profile') {
@@ -87,6 +90,13 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', parseHash))
           @click.prevent="navigate('admin')"
           >后台审核</a
         >
+        <a
+          v-if="user.role === 'admin'"
+          class="admin-banner"
+          href="#/members"
+          @click.prevent="navigate('members')"
+          >成员管理</a
+        >
         <a href="#" @click.prevent="logout">退出</a>
       </span>
       <span v-else class="who">
@@ -98,8 +108,8 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', parseHash))
       <PuzzleWorkspace v-else-if="view === 'workspace'" :initial-char="targetChar" />
       <AdminView
         v-else-if="view === 'admin' && user && (user.role === 'admin' || user.role === 'reviewer')"
-        :user="user"
       />
+      <MembersView v-else-if="view === 'members' && user && user.role === 'admin'" />
       <AuthView v-else-if="view === 'login'" @authed="onAuthed" />
       <ProfileView v-else-if="view === 'profile' && user" :user="user" />
       <div v-else class="no-access">
