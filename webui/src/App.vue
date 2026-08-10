@@ -55,7 +55,7 @@ function restoreSession() {
 
 function onAuthed(u) {
   user.value = u
-  navigate(u && u.role === 'admin' ? 'admin' : 'gallery')
+  navigate(u && (u.role === 'admin' || u.role === 'reviewer') ? 'admin' : 'gallery')
 }
 
 function logout() {
@@ -81,7 +81,7 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', parseHash))
       <span v-if="user" class="who">
         <a href="#/profile" @click.prevent="navigate('profile')">{{ user.name || user.email }}</a>
         <a
-          v-if="user.role === 'admin'"
+          v-if="user.role === 'admin' || user.role === 'reviewer'"
           class="admin-banner"
           href="#/admin"
           @click.prevent="navigate('admin')"
@@ -96,11 +96,13 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', parseHash))
     <main>
       <GalleryView v-if="view === 'gallery'" @open-char="openChar" />
       <PuzzleWorkspace v-else-if="view === 'workspace'" :initial-char="targetChar" />
-      <AdminView v-else-if="view === 'admin' && user && user.role === 'admin'" />
+      <AdminView
+        v-else-if="view === 'admin' && user && (user.role === 'admin' || user.role === 'reviewer')"
+      />
       <AuthView v-else-if="view === 'login'" @authed="onAuthed" />
       <ProfileView v-else-if="view === 'profile' && user" :user="user" />
       <div v-else class="no-access">
-        <p>管理页面需要管理员账号登录。</p>
+        <p>管理页面需要管理员或审核员账号登录。</p>
         <a href="#/login" @click="navigate('login')">去登录</a>
       </div>
     </main>

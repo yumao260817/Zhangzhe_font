@@ -10,6 +10,7 @@ const cands = ref([])
 const loading = ref(true)
 
 const STATUS_LABEL = { pending: '待审核', approved: '已过审', rejected: '未过审' }
+const ROLE_LABEL = { admin: '管理员', reviewer: '审核员', user: '粉丝' }
 
 onMounted(async () => {
   try {
@@ -42,6 +43,7 @@ function goHome() {
     <div class="info">
       <p>昵称：{{ user.name || '（未设置）' }}</p>
       <p>邮箱：{{ user.email }}</p>
+      <p>角色：{{ ROLE_LABEL[user.role] || '粉丝' }}</p>
     </div>
     <h3>我提交的字</h3>
     <p v-if="loading">加载中…</p>

@@ -16,10 +16,13 @@ generate:
 server:
   host: 0.0.0.0
   port: 8000
-  # 管理员鉴权仅依赖已登录的管理员邮箱账号（role=admin），无其他后门口令
+  # 鉴权仅依赖登录的邮箱账号角色（admin/reviewer/user），无其他后门口令
   # 管理员邮箱配置示例（注册时自动获得 admin 角色）：
   #   admin_emails:
   #     - admin@example.com
+  # 审核员邮箱配置示例（注册时自动获得 reviewer 角色，仅可审核）：
+  #   reviewer_emails:
+  #     - reviewer@example.com
   # 本文件为模板，复制为 default.yaml 后按需修改
 
 export:

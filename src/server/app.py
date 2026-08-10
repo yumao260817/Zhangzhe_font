@@ -37,6 +37,12 @@ def _admin_ok(token: str, authorization: str | None, cfg: dict) -> bool:
     return auth.is_admin(user)
 
 
+def _review_ok(token: str, authorization: str | None, cfg: dict) -> bool:
+    """管理员或审核员会话均可执行审核"""
+    user = auth.user_by_token(_bearer(authorization)) or auth.user_by_token(token)
+    return auth.is_reviewer(user)
+
+
 def _reviewer_name(authorization: str | None) -> str:
     """从 Bearer 会话取管理员邮箱作为审核人"""
     user = auth.user_by_token(_bearer(authorization))
@@ -137,7 +143,7 @@ def make_app(config: str | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="目标字不在 GB2312 一级字集")
         from ..paths import PROCESSED, STDSRC
 
-        admin = auth.is_admin(auth.user_by_token(_bearer(authorization)))
+        admin = auth.is_reviewer(auth.user_by_token(_bearer(authorization)))
         return {
             "char": char,
             "handwritten": (PROCESSED / f"{char}.png").exists(),
@@ -211,8 +217,8 @@ def make_app(config: str | None = None) -> FastAPI:
     def char_candidates(
         char: str, status: str | None = None, token: str = "", authorization: str | None = Header(None)
     ):
-        """公开只给 approved；管理员给全部"""
-        if _admin_ok(token, authorization, cfg):
+        """公开只给 approved；管理员/审核员给全部"""
+        if _review_ok(token, authorization, cfg):
             return puzzle.list_candidates(char, status)
         return puzzle.list_candidates(char, "approved")
 
@@ -221,9 +227,9 @@ def make_app(config: str | None = None) -> FastAPI:
         status: str | None = None, token: str = "", authorization: str | None = Header(None)
     ):
         if status and status != "approved":
-            if not _admin_ok(token, authorization, cfg):
+            if not _review_ok(token, authorization, cfg):
                 raise HTTPException(status_code=403, detail="需要管理员权限")
-        if _admin_ok(token, authorization, cfg):
+        if _review_ok(token, authorization, cfg):
             return puzzle.all_candidates(status)
         return puzzle.all_candidates("approved")
 
@@ -334,7 +340,7 @@ def make_app(config: str | None = None) -> FastAPI:
         if row is None:
             raise HTTPException(status_code=404, detail="候选不存在")
         status, author = row["status"], row["author"]
-        if status != "approved" and not _admin_ok(token, authorization, cfg):
+        if status != "approved" and not _review_ok(token, authorization, cfg):
             user = auth.user_by_token(_bearer(authorization)) or auth.user_by_token(token)
             if not user or (user["email"] != author and (user.get("name") or "") != author):
                 raise HTTPException(status_code=403, detail="需要管理员权限")
@@ -354,7 +360,7 @@ def make_app(config: str | None = None) -> FastAPI:
         if row is None:
             raise HTTPException(status_code=404, detail="候选不存在")
         status, author = row["status"], row["author"]
-        if status != "approved" and not _admin_ok(token, authorization, cfg):
+        if status != "approved" and not _review_ok(token, authorization, cfg):
             user = auth.user_by_token(_bearer(authorization)) or auth.user_by_token(token)
             if not user or (user["email"] != author and (user.get("name") or "") != author):
                 raise HTTPException(status_code=403, detail="需要管理员权限")
@@ -372,7 +378,7 @@ def make_app(config: str | None = None) -> FastAPI:
 
     @app.post("/api/admin/approve")
     def approve(uid: str = Form(...), token: str = Form(""), authorization: str | None = Header(None)):
-        if not _admin_ok(token, authorization, cfg):
+        if not _review_ok(token, authorization, cfg):
             raise HTTPException(status_code=403, detail="需要管理员权限")
         reviewer = _reviewer_name(authorization)
         ok = puzzle.set_status(uid, "approved", reviewer=reviewer)
@@ -382,7 +388,7 @@ def make_app(config: str | None = None) -> FastAPI:
 
     @app.post("/api/admin/reject")
     def reject(uid: str = Form(...), token: str = Form(""), authorization: str | None = Header(None)):
-        if not _admin_ok(token, authorization, cfg):
+        if not _review_ok(token, authorization, cfg):
             raise HTTPException(status_code=403, detail="需要管理员权限")
         reviewer = _reviewer_name(authorization)
         ok = puzzle.set_status(uid, "rejected", reviewer=reviewer)

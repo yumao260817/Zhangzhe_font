@@ -72,9 +72,24 @@ def admin_emails(cfg: dict) -> set[str]:
     return {e.strip().lower() for e in raw if e}
 
 
+def reviewer_emails(cfg: dict) -> set[str]:
+    import os
+
+    env = os.environ.get("ZZ_REVIEWER_EMAILS")
+    if env:
+        return {e.strip().lower() for e in env.split(",") if e.strip()}
+    server = cfg.get("server", {}) if isinstance(cfg.get("server"), dict) else {}
+    raw = server.get("reviewer_emails") or cfg.get("reviewer_emails") or []
+    if isinstance(raw, str):
+        raw = [e.strip() for e in raw.split(",") if e.strip()]
+    return {e.strip().lower() for e in raw if e}
+
+
 def _role_for_email(email: str, cfg: dict) -> str:
     if email.lower() in admin_emails(cfg):
         return "admin"
+    if email.lower() in reviewer_emails(cfg):
+        return "reviewer"
     return "user"
 
 
@@ -150,3 +165,8 @@ def logout(token: str | None) -> None:
 
 def is_admin(user: dict | None) -> bool:
     return bool(user and user.get("role") == "admin")
+
+
+def is_reviewer(user: dict | None) -> bool:
+    """审核员或管理员均可执行审核"""
+    return bool(user and user.get("role") in ("admin", "reviewer"))
