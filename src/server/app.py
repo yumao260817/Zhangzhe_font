@@ -388,6 +388,7 @@ def make_app(config: str | None = None) -> FastAPI:
         ok = puzzle.set_status(uid, "rejected", reviewer=reviewer)
         if not ok:
             raise HTTPException(status_code=404, detail="候选不存在")
+        puzzle.thumbnize(uid)
         return {"ok": True, "uid": uid, "status": "rejected"}
 
     # ---- 前端静态资源 ----

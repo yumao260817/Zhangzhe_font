@@ -307,6 +307,36 @@ def set_status(uid: str, status: str, reviewer: str = "") -> bool:
         conn.close()
 
 
+def thumbnize(uid: str, size: int = 128) -> bool:
+    """审核未过审时调用：把候选 png 替换为缩略图，并删除后端合成的 svg（原图不再保留）"""
+    conn = store.connect()
+    try:
+        row = conn.execute("SELECT png_path, svg_path FROM candidates WHERE uid = ?", (uid,)).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return False
+    png_p = Path(row["png_path"])
+    if not png_p.exists():
+        return False
+    try:
+        from PIL import Image
+
+        resample = getattr(getattr(Image, "Resampling", None), "LANCZOS", Image.LANCZOS)
+        img = Image.open(png_p)
+        img.thumbnail((size, size), resample)
+        img.save(png_p, "PNG")
+    except Exception:
+        return False
+    svg_p = Path(row["svg_path"])
+    if svg_p.exists():
+        try:
+            svg_p.unlink()
+        except OSError:
+            pass
+    return True
+
+
 def char_status(char: str) -> dict:
     conn = store.connect()
     row = conn.execute(
