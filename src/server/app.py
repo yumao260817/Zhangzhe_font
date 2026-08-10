@@ -397,6 +397,40 @@ def make_app(config: str | None = None) -> FastAPI:
         puzzle.thumbnize(uid)
         return {"ok": True, "uid": uid, "status": "rejected"}
 
+    @app.get("/api/admin/users")
+    def admin_users(token: str = "", authorization: str | None = Header(None)):
+        """成员列表：仅管理员"""
+        if not _admin_ok(token, authorization, cfg):
+            raise HTTPException(status_code=403, detail="需要管理员权限")
+        with store.db() as conn:
+            rows = conn.execute(
+                "SELECT id, email, role, name, created_at FROM users ORDER BY id"
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    @app.post("/api/admin/set-role")
+    def admin_set_role(
+        email: str = Form(...),
+        role: str = Form(...),
+        token: str = Form(""),
+        authorization: str | None = Header(None),
+    ):
+        """提升/降级成员角色（user <-> reviewer）；管理员角色不可由接口修改"""
+        if not _admin_ok(token, authorization, cfg):
+            raise HTTPException(status_code=403, detail="需要管理员权限")
+        if role not in ("user", "reviewer"):
+            raise HTTPException(status_code=400, detail="角色只能是 user 或 reviewer")
+        email = email.strip().lower()
+        with store.db() as conn:
+            row = conn.execute("SELECT role FROM users WHERE email = ?", (email,)).fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="用户不存在")
+            if row["role"] == "admin":
+                raise HTTPException(status_code=400, detail="不能修改管理员角色")
+            conn.execute("UPDATE users SET role = ? WHERE email = ?", (role, email))
+            conn.commit()
+        return {"ok": True, "email": email, "role": role}
+
     # ---- 前端静态资源 ----
     dist_dir = ROOT / "webui" / "dist"
     if dist_dir.exists():

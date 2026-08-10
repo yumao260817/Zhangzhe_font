@@ -98,6 +98,7 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', parseHash))
       <PuzzleWorkspace v-else-if="view === 'workspace'" :initial-char="targetChar" />
       <AdminView
         v-else-if="view === 'admin' && user && (user.role === 'admin' || user.role === 'reviewer')"
+        :user="user"
       />
       <AuthView v-else-if="view === 'login'" @authed="onAuthed" />
       <ProfileView v-else-if="view === 'profile' && user" :user="user" />
