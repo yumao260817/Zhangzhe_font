@@ -104,6 +104,7 @@ onMounted(load)
 .admin {
   padding: 20px;
   max-width: 1100px;
+  margin: 0 auto;
 }
 .head {
   display: flex;
