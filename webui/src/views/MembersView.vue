@@ -39,6 +39,26 @@ async function setRole(email, role) {
   await loadUsers()
 }
 
+async function resetPassword(email) {
+  if (!window.confirm(`确认重置 ${email} 的密码？其所有登录会话将立即失效。`)) return
+  message.value = ''
+  const res = await api('/api/admin/reset-password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  })
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    message.value = body.detail || '操作失败'
+    return
+  }
+  if (body.temp_password) {
+    window.alert(`密码已重置。临时密码：${body.temp_password}\n请线下转交用户，并提醒其登录后尽快修改。`)
+  } else {
+    message.value = body.message || '若该账户存在，密码已重置'
+  }
+}
+
 function goHome() {
   window.location.hash = '#/gallery'
 }
@@ -68,11 +88,14 @@ onMounted(loadUsers)
         <tr v-for="u in users" :key="u.id">
           <td>{{ u.name || '（未设置）' }}</td>
           <td>{{ u.email }}</td>
-          <td><span class="role-badge" :class="`role-${u.role}`">{{ ROLE_LABEL[u.role] || u.role }}</span></td>
+          <td>
+            <span class="role-badge" :class="`role-${u.role}`">{{ ROLE_LABEL[u.role] || u.role }}</span>
+          </td>
           <td>{{ u.created_at?.slice(0, 10) }}</td>
           <td>
             <button v-if="u.role === 'user'" class="ok" @click="setRole(u.email, 'reviewer')">提升审核员</button>
             <button v-else-if="u.role === 'reviewer'" class="no" @click="setRole(u.email, 'user')">降为粉丝</button>
+            <button class="reset" @click="resetPassword(u.email)">重置密码</button>
           </td>
         </tr>
       </tbody>
@@ -161,5 +184,15 @@ button.no {
   padding: 3px 10px;
   border-radius: 4px;
   font-size: 12px;
+}
+button.reset {
+  color: #b26a00;
+  border-color: #b26a00;
+  background: #fff;
+  cursor: pointer;
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  margin-left: 6px;
 }
 </style>

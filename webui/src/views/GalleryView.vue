@@ -1,5 +1,6 @@
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue'
+import { api } from '../auth.js'
 
 const emit = defineEmits(['open-char'])
 
@@ -15,7 +16,7 @@ async function loadAll() {
   loading.value = true
   error.value = ''
   try {
-    const res = await fetch('/api/gallery')
+    const res = await api('/api/gallery')
     if (!res.ok) throw new Error(`加载失败 ${res.status}`)
     all.value = await res.json()
   } catch (err) {
@@ -36,7 +37,7 @@ watch(query, (q) => {
   if (isPinyin(q)) {
     timer = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/pinyin/${encodeURIComponent(q.toLowerCase())}`)
+        const res = await api(`/api/pinyin/${encodeURIComponent(q.toLowerCase())}`)
         if (!res.ok) return
         const data = await res.json()
         if (data.pinyin !== q.toLowerCase()) return // 输入已变化
@@ -128,7 +129,7 @@ onMounted(loadAll)
         <strong>{{ stats.done }}</strong> / {{ stats.total }}。
       </p>
       <p class="intro-text">
-        标注<span class="legend legend-has">原字</span>的为长者手写字，标注<span class="legend legend-miss">拼字</span>的为真正的粉丝以原字偏旁部首拼接二次创作。<br>点击任意字即可进入拼字工作台参与补全。
+        标注<span class="legend legend-has">原字</span>的为长者手写原字，标注<span class="legend legend-miss">拼字</span>的为真正的粉丝二次创作。<br>点击任意字即可进入拼字工作台参与补全。
       </p>
     </section>
 

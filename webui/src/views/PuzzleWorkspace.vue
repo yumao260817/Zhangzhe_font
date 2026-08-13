@@ -172,7 +172,7 @@ async function queryChar() {
   message.value = ''
   emit('char-changed', c)
   try {
-    const res = await fetch(`/api/char/${encodeURIComponent(c)}`)
+    const res = await api(`/api/char/${encodeURIComponent(c)}`)
     charInfo.value = res.ok ? await res.json() : null
     if (!res.ok) {
       const body = await res.json().catch(() => ({}))
@@ -187,7 +187,7 @@ async function queryChar() {
 
 async function loadPending() {
   try {
-    const res = await fetch('/api/random-pending?n=5')
+    const res = await api('/api/random-pending?n=5')
     pendingChars.value = res.ok ? await res.json() : []
   } catch {
     pendingChars.value = []

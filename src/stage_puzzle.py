@@ -1,4 +1,3 @@
-import hashlib
 import json
 import uuid
 from io import BytesIO
@@ -13,53 +12,11 @@ from . import store
 
 LEVEL1 = set(level1_chars())
 GRID = 512
-MAX_PIECE_BYTES = 2 * 1024 * 1024  # 单部件 2MB 上限
-MAX_PIECES_PER_USER_PER_HOUR = 100  # 单用户上传频率上限
+MAX_PIECE_BYTES = 2 * 1024 * 1024  # 单部件/单图 2MB 上限
 
 
 def _imread_bytes(data: bytes) -> Image.Image:
     return Image.open(BytesIO(data)).convert("RGBA")
-
-
-def validate_piece(data: bytes) -> tuple[bool, str]:
-    """校验上传数据：大小上限 + 可解码 PNG"""
-    if len(data) > MAX_PIECE_BYTES:
-        return False, f"图片超过大小上限 {MAX_PIECE_BYTES // (1024 * 1024)}MB"
-    try:
-        img = _imread_bytes(data)
-        if img.width < 4 or img.height < 4:
-            return False, "图片尺寸过小"
-    except Exception:
-        return False, "不是有效 PNG 图片"
-    return True, ""
-
-
-def save_piece(data: bytes) -> dict:
-    """保存上传的透明 PNG 部件，返回元信息"""
-    ok, msg = validate_piece(data)
-    if not ok:
-        raise ValueError(msg)
-    img = _imread_bytes(data)
-    h, w = img.height, img.width
-
-    def _rgb(_c):
-        return "".join(f"{x:02x}" for x in (_c if isinstance(_c, tuple) else (_c,)))
-
-    digest = hashlib.sha256(data).hexdigest()[:16]
-    PUZZLE_PIECES.mkdir(parents=True, exist_ok=True)
-    fn = PUZZLE_PIECES / f"{digest}.png"
-    if not fn.exists():
-        fn.write_bytes(data)
-    return {
-        "id": digest,
-        "url": f"/api/pieces/{digest}/img",
-        "w": w,
-        "h": h,
-    }
-
-
-def piece_url(pid: str) -> str:
-    return f"/api/pieces/{pid}/img"
 
 
 def _compose_rgba(pieces: list[dict]) -> np.ndarray:
@@ -208,34 +165,47 @@ def save_candidate(
     png_p = cand_dir / f"{uid}.png"
     svg_p = cand_dir / f"{uid}.svg"
     proj_p = cand_dir / f"{uid}.json"
-    png_p.write_bytes(png)
-    svg_p.write_text(svg, encoding="utf-8")
-    src_p = None
-    if source == "original":
-        src_p = PUZZLE_SOURCES / f"{uid}.png"
-        src_p.parent.mkdir(parents=True, exist_ok=True)
-        src_p.write_bytes(source_png)
-    proj_p.write_text(
-        json.dumps(
-            {
-                "char": char,
-                "pieces": pieces,
-                "author": author,
-                "note": note,
-                "png_source": "frontend",
-                "source": source,
-            },
-            ensure_ascii=False,
-        ),
-        encoding="utf-8",
-    )
 
-    with store.db() as conn:
-        conn.execute(
-            "INSERT INTO candidates (char, uid, author, status, png_path, svg_path, project_path, source, source_path, note) "
-            "VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)",
-            (char, uid, author, str(png_p), str(svg_p), str(proj_p), source, str(src_p) if src_p else None, note),
+    written: list[Path] = []
+    try:
+        png_p.write_bytes(png)
+        written.append(png_p)
+        svg_p.write_text(svg, encoding="utf-8")
+        written.append(svg_p)
+        if source == "original":
+            src_p = PUZZLE_SOURCES / f"{uid}.png"
+            src_p.parent.mkdir(parents=True, exist_ok=True)
+            src_p.write_bytes(source_png)
+            written.append(src_p)
+        proj_p.write_text(
+            json.dumps(
+                {
+                    "char": char,
+                    "pieces": pieces,
+                    "author": author,
+                    "note": note,
+                    "png_source": "frontend",
+                    "source": source,
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
         )
+        written.append(proj_p)
+        with store.db() as conn:
+            conn.execute(
+                "INSERT INTO candidates (char, uid, author, status, png_path, svg_path, project_path, source, source_path, note) "
+                "VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)",
+                (char, uid, author, str(png_p), str(svg_p), str(proj_p), source, str(src_p) if source == "original" else None, note),
+            )
+    except Exception:
+        # 原子性：任一环节失败则删除已写文件，避免孤儿文件（文件在、DB 无记录）
+        for p in written:
+            try:
+                p.unlink()
+            except OSError:
+                pass
+        raise ValueError("候选保存失败，请重试")
     return {"id": uid, "char": char, "status": "pending", "source": source}
 
 
@@ -288,7 +258,7 @@ def cand_files(uid: str) -> tuple[Path, Path, Path] | None:
     return paths  # 类型: (Path, Path, Path)
 
 
-def set_status(uid: str, status: str, reviewer: str = "") -> bool:
+def set_status(uid: str, status: str, reviewer: str = "", note: str = "") -> bool:
     conn = store.connect()
     try:
         cur = conn.execute(
@@ -298,8 +268,8 @@ def set_status(uid: str, status: str, reviewer: str = "") -> bool:
         row = conn.execute("SELECT char FROM candidates WHERE uid = ?", (uid,)).fetchone()
         if cur.rowcount > 0 and row:
             conn.execute(
-                "INSERT INTO review_log (char, action, reviewer) VALUES (?, ?, ?)",
-                (row["char"], f"{status}:{uid}", reviewer),
+                "INSERT INTO review_log (char, action, reviewer, note) VALUES (?, ?, ?, ?)",
+                (row["char"], f"{status}:{uid}", reviewer, note or None),
             )
         conn.commit()
         return cur.rowcount > 0

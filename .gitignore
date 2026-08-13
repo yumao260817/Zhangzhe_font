@@ -35,8 +35,8 @@ AGENTS.md
 agents/
 *.agent.md
 
-# 导出产物
-output/
+# 导出产物（fonts 随仓库上传；reports 含联系人生成图，不入库）
+output/reports/
 
 # 失效/大体积资产（保留在磁盘，不入库）
 others/

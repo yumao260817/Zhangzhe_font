@@ -2,26 +2,31 @@ import hashlib
 import hmac
 import secrets
 import random
-import threading
-import time
 from datetime import datetime, timedelta
 
 from . import store
 
 TOKEN_TTL_DAYS = 30
 CAPTCHA_TTL_SECONDS = 300
+LOGIN_MAX_FAIL = 5
+LOGIN_LOCK_MINUTES = 15
 
-_captchas: dict[str, tuple[int, float]] = {}
-_captchas_lock = threading.Lock()
+
+def _now_str() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def new_captcha() -> dict:
     a = random.randint(10, 99)
     b = random.randint(1, 9)
     cid = secrets.token_urlsafe(10)
-    with _captchas_lock:
-        _prune_captchas()
-        _captchas[cid] = (a + b, time.time())
+    expires = (datetime.now() + timedelta(seconds=CAPTCHA_TTL_SECONDS)).strftime("%Y-%m-%d %H:%M:%S")
+    with store.db() as conn:
+        conn.execute(
+            "INSERT INTO captchas (cid, answer, expires_at) VALUES (?, ?, ?)",
+            (cid, str(a + b), expires),
+        )
+        conn.execute("DELETE FROM captchas WHERE expires_at < ?", (_now_str(),))
     return {"captcha_id": cid, "question": f"{a} + {b} = ?"}
 
 
@@ -32,17 +37,52 @@ def check_captcha(cid: str, answer) -> bool:
         answer_int = int(str(answer).strip())
     except (TypeError, ValueError):
         return False
-    with _captchas_lock:
-        _prune_captchas()
-        entry = _captchas.pop(cid, None)
-    return bool(entry and entry[0] == answer_int)
+    with store.db() as conn:
+        row = conn.execute(
+            "SELECT answer FROM captchas WHERE cid = ? AND expires_at > ?",
+            (cid, _now_str()),
+        ).fetchone()
+        if row is not None and row["answer"] == str(answer_int):
+            # 仅答案正确时消费（一次性）；答错可重试，到期自动失效
+            conn.execute("DELETE FROM captchas WHERE cid = ?", (cid,))
+    return bool(row) and row["answer"] == str(answer_int)
 
 
-def _prune_captchas() -> None:
-    now = time.time()
-    expired = [k for k, (_, ts) in _captchas.items() if now - ts > CAPTCHA_TTL_SECONDS]
-    for k in expired:
-        _captchas.pop(k, None)
+def login_locked(email: str) -> bool:
+    """登录失败锁定：累计 5 次失败锁 15 分钟"""
+    with store.db() as conn:
+        row = conn.execute(
+            "SELECT fail_count, locked_until FROM login_fails WHERE email = ?", (email,)
+        ).fetchone()
+    if not row:
+        return False
+    if row["locked_until"]:
+        return row["locked_until"] > _now_str()
+    return row["fail_count"] >= LOGIN_MAX_FAIL
+
+
+def record_login_fail(email: str) -> None:
+    now = _now_str()
+    with store.db() as conn:
+        row = conn.execute("SELECT fail_count, locked_until FROM login_fails WHERE email = ?", (email,)).fetchone()
+        if row and row["locked_until"] and row["locked_until"] > now:
+            return  # 已锁定期间不再累计
+        count = (row["fail_count"] if row else 0) + 1
+        locked_until = None
+        if count >= LOGIN_MAX_FAIL:
+            locked_until = (
+                datetime.now() + timedelta(minutes=LOGIN_LOCK_MINUTES)
+            ).strftime("%Y-%m-%d %H:%M:%S")
+        conn.execute(
+            "INSERT INTO login_fails (email, fail_count, locked_until) VALUES (?, ?, ?) "
+            "ON CONFLICT(email) DO UPDATE SET fail_count = ?, locked_until = ?, updated_at = datetime('now','localtime')",
+            (email, count, locked_until, count, locked_until),
+        )
+
+
+def clear_login_fail(email: str) -> None:
+    with store.db() as conn:
+        conn.execute("DELETE FROM login_fails WHERE email = ?", (email,))
 
 
 def hash_password(password: str, salt: str | None = None) -> str:

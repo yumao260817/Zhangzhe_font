@@ -53,6 +53,19 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
   expires_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS captchas (
+  cid TEXT PRIMARY KEY,
+  answer TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS login_fails (
+  email TEXT PRIMARY KEY,
+  fail_count INTEGER NOT NULL DEFAULT 0,
+  locked_until TEXT,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
 """
 
 
@@ -84,6 +97,8 @@ def init_db() -> None:
     cols = [r["name"] for r in conn.execute("PRAGMA table_info(review_log)").fetchall()]
     if "reviewer" not in cols:
         conn.execute("ALTER TABLE review_log ADD COLUMN reviewer TEXT")
+    if "note" not in cols:
+        conn.execute("ALTER TABLE review_log ADD COLUMN note TEXT")
     cand_cols = [r["name"] for r in conn.execute("PRAGMA table_info(candidates)").fetchall()]
     if "source" not in cand_cols:
         conn.execute("ALTER TABLE candidates ADD COLUMN source TEXT NOT NULL DEFAULT 'composed'")

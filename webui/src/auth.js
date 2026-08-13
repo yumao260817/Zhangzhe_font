@@ -16,10 +16,3 @@ export async function api(url, opts = {}) {
   const res = await fetch(url, { ...opts, headers })
   return res
 }
-
-export async function authHeaders() {
-  const headers = {}
-  const token = getToken()
-  if (token) headers.Authorization = `Bearer ${token}`
-  return headers
-}

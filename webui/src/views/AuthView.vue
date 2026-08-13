@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, watch, onUnmounted } from 'vue'
 import { api, getToken, setToken } from '../auth.js'
 
 const emit = defineEmits(['authed'])
@@ -14,22 +14,42 @@ const busy = ref(false)
 const captchaId = ref('')
 const captchaQuestion = ref('')
 const captchaAnswer = ref('')
+const cooldown = ref(0)
+let cooldownTimer = null
+
+function startCooldown() {
+  cooldown.value = 5
+  if (cooldownTimer) clearInterval(cooldownTimer)
+  cooldownTimer = setInterval(() => {
+    cooldown.value -= 1
+    if (cooldown.value <= 0) {
+      clearInterval(cooldownTimer)
+      cooldownTimer = null
+    }
+  }, 1000)
+}
 
 async function loadCaptcha() {
+  if (cooldown.value > 0) return
   captchaId.value = ''
   captchaQuestion.value = ''
   captchaAnswer.value = ''
   try {
-    const res = await fetch('/api/auth/captcha')
+    const res = await api('/api/auth/captcha')
     const data = await res.json()
     if (data.captcha_id) {
       captchaId.value = data.captcha_id
       captchaQuestion.value = data.question
+      startCooldown()
     }
   } catch (e) {
     /* 验证码不可用时允许注册（后端会兜底拒绝） */
   }
 }
+
+onUnmounted(() => {
+  if (cooldownTimer) clearInterval(cooldownTimer)
+})
 
 async function submit() {
   msg.value = ''
@@ -97,7 +117,7 @@ watch(mode, (m) => {
           <div class="caprow">
             <span v-if="captchaQuestion" class="capq">{{ captchaQuestion }}</span>
             <input v-model="captchaAnswer" type="text" required placeholder="计算结果" />
-            <button type="button" class="capre" @click="loadCaptcha">换一题</button>
+            <button type="button" class="capre" @click="loadCaptcha" :disabled="cooldown > 0">{{ cooldown > 0 ? `（${cooldown}s）` : '换一题' }}</button>
           </div>
         </label>
         <p v-if="msg" :class="ok ? 'ok' : 'err'">{{ msg }}</p>

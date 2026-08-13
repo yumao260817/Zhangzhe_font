@@ -6,11 +6,22 @@ const items = ref([])
 const tab = ref('pending')
 const loading = ref(false)
 const message = ref('')
+const todo = ref(null)
 
 async function load() {
   loading.value = true
   message.value = ''
   try {
+    if (tab.value === 'todo') {
+      const res = await api('/api/admin/todo')
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.detail || '加载失败')
+      }
+      todo.value = await res.json()
+      items.value = []
+      return
+    }
     const res = await api(`/api/candidates?status=${tab.value}`)
     if (!res.ok) {
       const body = await res.json().catch(() => ({}))
@@ -36,6 +47,10 @@ function goHome() {
   window.location.hash = '#/gallery'
 }
 
+function openChar(ch) {
+  window.location.hash = `#/workspace/${encodeURIComponent(ch)}`
+}
+
 function imgUrl(uid) {
   return `/api/candidates/${uid}/png${authQuery()}`
 }
@@ -45,9 +60,15 @@ function svgUrl(uid) {
 }
 
 async function act(uid, action) {
+  const note = window.prompt(action === 'reject' ? '驳回原因（必填）：' : '审批注记（可选）：', '')
+  if (action === 'reject' && !note?.trim()) {
+    message.value = '驳回需填写原因'
+    return
+  }
   message.value = ''
   const fd = new FormData()
   fd.append('uid', uid)
+  if (note?.trim()) fd.append('note', note.trim())
   const res = await api(`/api/admin/${action}`, { method: 'POST', body: fd })
   const body = await res.json().catch(() => ({}))
   if (!res.ok) {
@@ -67,13 +88,33 @@ onMounted(load)
       <button class="primary" @click="goHome">返回首页</button>
     </div>
     <div class="tabs">
+      <button :class="{ active: tab === 'todo' }" @click="tab = 'todo'; load()">待办</button>
       <button :class="{ active: tab === 'pending' }" @click="tab = 'pending'; load()">待审核</button>
       <button :class="{ active: tab === 'approved' }" @click="tab = 'approved'; load()">已过审</button>
       <button :class="{ active: tab === 'rejected' }" @click="tab = 'rejected'; load()">已驳回</button>
     </div>
     <p v-if="message" class="msg">{{ message }}</p>
     <p v-if="loading">加载中…</p>
-    <p v-else-if="!items.length" class="empty">列表为空</p>
+
+    <template v-if="tab === 'todo' && todo">
+      <div class="todo-sum">
+        <p>缺字总数：<b>{{ todo.missing_count }}</b>（含待拼与已有候选未过审）</p>
+        <div v-if="todo.pending_by_char.length" class="todo-pending">
+          <h3>已有候选待审核</h3>
+          <div class="pending-chips">
+            <button v-for="p in todo.pending_by_char" :key="p.char" class="chip" @click="openChar(p.char)">
+              {{ p.char }} ×{{ p.count }}
+            </button>
+          </div>
+        </div>
+        <h3>缺字列表（前 200）</h3>
+        <div class="missing-box">
+          <button v-for="c in todo.missing.slice(0, 200)" :key="c" class="chip" @click="openChar(c)">{{ c }}</button>
+        </div>
+      </div>
+    </template>
+
+    <p v-else-if="!loading && !items.length" class="empty">列表为空</p>
     <div v-else class="grid">
       <div v-for="c in items" :key="c.uid" class="card">
         <img :src="imgUrl(c.uid)" :alt="c.char" />
@@ -222,5 +263,30 @@ button {
 }
 .msg {
   color: #c62828;
+}
+.todo-sum h3 {
+  margin: 14px 0 8px;
+  font-size: 14px;
+}
+.todo-pending {
+  margin-bottom: 4px;
+}
+.pending-chips,
+.missing-box {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chip {
+  padding: 4px 9px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: #f5f6f8;
+  cursor: pointer;
+  font-size: 14px;
+}
+.chip:hover {
+  background: #e3ecfa;
+  border-color: #2b7de9;
 }
 </style>

@@ -1,7 +1,8 @@
 import sqlite3
+import secrets
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Header
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Header, Body
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -106,9 +107,14 @@ def make_app(config: str | None = None) -> FastAPI:
 
     @app.post("/api/auth/login")
     async def login(email: str = Form(...), password: str = Form(...)):
+        email = (email or "").strip().lower()
+        if auth.login_locked(email):
+            raise HTTPException(status_code=429, detail="登录失败次数过多，请 15 分钟后再试")
         ok, msg, data = auth.login(email, password)
         if not ok:
+            auth.record_login_fail(email)
             raise HTTPException(status_code=401, detail=msg)
+        auth.clear_login_fail(email)
         return {"ok": True, "message": msg, **data}
 
     @app.post("/api/auth/logout")
@@ -377,25 +383,40 @@ def make_app(config: str | None = None) -> FastAPI:
         return FileResponse(str(proj), media_type="application/json")
 
     @app.post("/api/admin/approve")
-    def approve(uid: str = Form(...), token: str = Form(""), authorization: str | None = Header(None)):
+    def approve(uid: str = Form(...), token: str = Form(""), note: str = Form(""), authorization: str | None = Header(None)):
         if not _review_ok(token, authorization, cfg):
             raise HTTPException(status_code=403, detail="需要管理员权限")
         reviewer = _reviewer_name(authorization)
-        ok = puzzle.set_status(uid, "approved", reviewer=reviewer)
+        ok = puzzle.set_status(uid, "approved", reviewer=reviewer, note=note)
         if not ok:
             raise HTTPException(status_code=404, detail="候选不存在")
         return {"ok": True, "uid": uid, "status": "approved"}
 
     @app.post("/api/admin/reject")
-    def reject(uid: str = Form(...), token: str = Form(""), authorization: str | None = Header(None)):
+    def reject(uid: str = Form(...), token: str = Form(""), note: str = Form(""), authorization: str | None = Header(None)):
         if not _review_ok(token, authorization, cfg):
             raise HTTPException(status_code=403, detail="需要管理员权限")
         reviewer = _reviewer_name(authorization)
-        ok = puzzle.set_status(uid, "rejected", reviewer=reviewer)
+        ok = puzzle.set_status(uid, "rejected", reviewer=reviewer, note=note)
         if not ok:
             raise HTTPException(status_code=404, detail="候选不存在")
         puzzle.thumbnize(uid)
         return {"ok": True, "uid": uid, "status": "rejected"}
+
+    @app.get("/api/admin/todo")
+    def admin_todo(token: str = "", authorization: str | None = Header(None)):
+        """待办：缺字列表 + 各字 pending 候选数（仅管理员）"""
+        if not _admin_ok(token, authorization, cfg):
+            raise HTTPException(status_code=403, detail="需要管理员权限")
+        hand = puzzle.handwritten_set()
+        approved = _approved_uids()
+        missing = [c for c in level1_chars() if c not in hand and c not in approved]
+        with store.db() as conn:
+            rows = conn.execute(
+                "SELECT char, COUNT(*) AS cnt FROM candidates WHERE status = 'pending' GROUP BY char"
+            ).fetchall()
+        pending_by_char = [{"char": r["char"], "count": r["cnt"]} for r in rows]
+        return {"missing_count": len(missing), "missing": missing, "pending_by_char": pending_by_char}
 
     @app.get("/api/admin/users")
     def admin_users(token: str = "", authorization: str | None = Header(None)):
@@ -430,6 +451,36 @@ def make_app(config: str | None = None) -> FastAPI:
             conn.execute("UPDATE users SET role = ? WHERE email = ?", (role, email))
             conn.commit()
         return {"ok": True, "email": email, "role": role}
+
+    @app.post("/api/admin/reset-password")
+    def admin_reset_password(
+        body: dict = Body(...),
+        authorization: str | None = Header(None),
+    ):
+        """管理员重置用户密码：高熵临时密码 + 清旧会话 + 审计留痕；邮箱不存在返回模糊提示"""
+        if not _admin_ok("", authorization, cfg):
+            raise HTTPException(status_code=403, detail="需要管理员权限")
+        email = (body.get("email") or "").strip().lower()
+        if not email or "@" not in email:
+            raise HTTPException(status_code=400, detail="邮箱格式不正确")
+        admin_user = auth.user_by_token(_bearer(authorization))
+        temp = secrets.token_urlsafe(12)
+        with store.db() as conn:
+            row = conn.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()
+            if row is None:
+                # 模糊提示：不泄露邮箱是否注册
+                return {"ok": True, "message": "若该账户存在，密码已重置", "temp_password": None}
+            conn.execute(
+                "UPDATE users SET pass_hash = ? WHERE id = ?",
+                (auth.hash_password(temp), row["id"]),
+            )
+            # 清空该用户所有旧会话，防旧 token 劫持
+            conn.execute("DELETE FROM sessions WHERE user_id = ?", (row["id"],))
+            conn.execute(
+                "INSERT INTO review_log (char, action, reviewer, note) VALUES (?, ?, ?, ?)",
+                ("", f"reset_password:{email}", admin_user["email"] if admin_user else "", "管理员重置密码"),
+            )
+        return {"ok": True, "message": "密码已重置", "email": email, "temp_password": temp}
 
     # ---- 前端静态资源 ----
     dist_dir = ROOT / "webui" / "dist"
