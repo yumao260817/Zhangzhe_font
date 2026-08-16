@@ -8,11 +8,13 @@ env/
 # Node
 webui/node_modules/
 
-# 构建产物（FastAPI 托管用，改动 vue 后 npm.cmd run build 重建）
-webui/dist/
+# 构建产物（FastAPI 托管用，改动 vue 后 npm.cmd run build 重建；仅保留目录）
+webui/dist/*
+!webui/dist/.gitkeep
 
-# 数据库（含用户/会话/审核数据，勿提交）
-queue/
+# 数据库（含用户/会话/审核数据，勿提交，仅保留目录）
+queue/*
+!queue/.gitkeep
 *.db
 *.sqlite3
 
@@ -20,8 +22,11 @@ queue/
 configs/default.yaml
 .env
 
-# 拼字工作台运行期数据（用户上传部件/候选）
-data/puzzle/
+# 拼字工作台运行期数据（用户上传部件/候选，仅保留目录结构）
+data/puzzle/**
+!data/puzzle/**/
+!data/puzzle/.gitkeep
+!data/puzzle/**/.gitkeep
 
 # data 目录下全部图片不入库（手写素材/标准字形/部件等）
 data/**/*.png
@@ -47,12 +52,15 @@ AGENTS.md
 agents/
 *.agent.md
 
-# 导出产物（fonts 随仓库上传；reports 含联系人生成图，不入库）
-output/reports/
+# 导出产物（fonts 随仓库上传；reports 含联系人生成图，不入库，仅保留目录）
+output/reports/*
+!output/reports/.gitkeep
 
-# 失效/大体积资产（保留在磁盘，不入库）
-others/
-checkpoints/
+# 失效/大体积资产（保留在磁盘，不入库，仅保留目录）
+others/*
+!others/.gitkeep
+checkpoints/*
+!checkpoints/.gitkeep
 models/
 *.pt
 *.pth
