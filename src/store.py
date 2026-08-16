@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS users (
   pass_hash TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'user',
   name TEXT,
+  temp_pw_expire TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 
@@ -104,8 +105,12 @@ def init_db() -> None:
         conn.execute("ALTER TABLE candidates ADD COLUMN source TEXT NOT NULL DEFAULT 'composed'")
     if "source_path" not in cand_cols:
         conn.execute("ALTER TABLE candidates ADD COLUMN source_path TEXT")
+    user_cols = [r["name"] for r in conn.execute("PRAGMA table_info(users)").fetchall()]
+    if "temp_pw_expire" not in user_cols:
+        conn.execute("ALTER TABLE users ADD COLUMN temp_pw_expire TEXT")
     # 查询索引（P2-2）
     conn.execute("CREATE INDEX IF NOT EXISTS idx_cand_char ON candidates(char)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_cand_status ON candidates(status)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)")
     conn.commit()
     conn.close()

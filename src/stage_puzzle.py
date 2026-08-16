@@ -139,6 +139,11 @@ def save_candidate(
         raise ValueError("PNG 数据不是有效图片")
     if img.size != (GRID, GRID):
         raise ValueError(f"PNG 尺寸必须为 {GRID}×{GRID}")
+    # 非透明像素占比校验：防全透明空白候选
+    arr = np.array(img)
+    alpha = arr[:, :, 3]
+    if float((alpha > 10).sum()) / alpha.size < 0.01:
+        raise ValueError("候选图几乎全透明，请确认部件在画布内")
     source = "composed"
     source_path = None
     if source_png:
@@ -205,6 +210,10 @@ def save_candidate(
                 p.unlink()
             except OSError:
                 pass
+        try:
+            cand_dir.rmdir()  # 仅当目录为空（新建的）才删除
+        except OSError:
+            pass
         raise ValueError("候选保存失败，请重试")
     return {"id": uid, "char": char, "status": "pending", "source": source}
 

@@ -72,6 +72,10 @@ async function submit() {
       if (data.token) {
         setToken(data.token)
         emit('authed', data.user)
+        if (data.must_change) {
+          msg.value = '使用临时密码登录，请尽快在个人主页修改密码'
+          ok.value = false
+        }
       } else if (mode.value === 'register') {
         msg.value = '注册成功，请登录'
         ok.value = true
@@ -110,7 +114,7 @@ watch(mode, (m) => {
         </label>
         <label>
           密码
-          <input v-model="password" type="password" required :minlength="6" placeholder="至少 6 位" />
+          <input v-model="password" type="password" required :minlength="8" placeholder="至少 8 位" />
         </label>
         <label v-if="mode === 'register'">
           验证码

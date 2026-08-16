@@ -234,6 +234,18 @@ function openConfirm() {
     message.value = '画布为空'
     return
   }
+  // 预检：至少一个图层与 512 画布有交集（防全透明导出）
+  const inCanvas = layers.value.some((l) => {
+    const x0 = l.x || 0
+    const y0 = l.y || 0
+    const x1 = x0 + (l.scale_w || 0)
+    const y1 = y0 + (l.scale_h || 0)
+    return x1 > 0 && y1 > 0 && x0 < 512 && y0 < 512
+  })
+  if (!inCanvas) {
+    message.value = '部件都不在画布内，请先拖入画布'
+    return
+  }
   confirmModal.value = true
 }
 
@@ -244,6 +256,9 @@ async function doSubmit() {
     // 所见即所得：把当前画布渲染成 PNG，仅提交合并后的图片（部件不落服务器）
     const canvas = await renderCanvas(layers.value)
     const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'))
+    if (blob.size > 2 * 1024 * 1024) {
+      throw new Error('图片超过 2MB 上限，请减小部件数量或尺寸')
+    }
     const fd = new FormData()
     fd.append('note', note.value)
     fd.append('file', blob, 'render.png')

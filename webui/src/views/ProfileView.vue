@@ -8,9 +8,42 @@ const props = defineProps({
 
 const cands = ref([])
 const loading = ref(true)
+const pwMsg = ref('')
+const pwOk = ref(false)
+const oldPw = ref('')
+const newPw = ref('')
+const newPw2 = ref('')
 
 const STATUS_LABEL = { pending: '待审核', approved: '已过审', rejected: '未过审' }
 const ROLE_LABEL = { admin: '管理员', reviewer: '审核员', user: '粉丝' }
+
+async function changePassword() {
+  pwMsg.value = ''
+  pwOk.value = false
+  if (newPw.value.length < 8) {
+    pwMsg.value = '新密码至少 8 位'
+    return
+  }
+  if (newPw.value !== newPw2.value) {
+    pwMsg.value = '两次输入的新密码不一致'
+    return
+  }
+  const res = await api('/api/auth/change-password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ old_password: oldPw.value, new_password: newPw.value }),
+  })
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    pwMsg.value = body.detail || '修改失败'
+    return
+  }
+  pwOk.value = true
+  pwMsg.value = '密码已修改'
+  oldPw.value = ''
+  newPw.value = ''
+  newPw2.value = ''
+}
 
 onMounted(async () => {
   try {
@@ -44,6 +77,23 @@ function goHome() {
       <p>昵称：{{ user.name || '（未设置）' }}</p>
       <p>邮箱：{{ user.email }}</p>
       <p>角色：{{ ROLE_LABEL[user.role] || '粉丝' }}</p>
+    </div>
+    <div class="info pw-box">
+      <h3>修改密码</h3>
+      <label>
+        旧密码
+        <input v-model="oldPw" type="password" placeholder="当前密码" />
+      </label>
+      <label>
+        新密码（至少 8 位）
+        <input v-model="newPw" type="password" placeholder="新密码" />
+      </label>
+      <label>
+        确认新密码
+        <input v-model="newPw2" type="password" placeholder="再次输入新密码" />
+      </label>
+      <p v-if="pwMsg" :class="pwOk ? 'ok' : 'err'">{{ pwMsg }}</p>
+      <button class="pw-btn" @click="changePassword">保存新密码</button>
     </div>
     <h3>我提交的字</h3>
     <p v-if="loading">加载中…</p>
@@ -169,5 +219,41 @@ h4 {
 .note {
   color: #666;
   font-size: 13px;
+}
+.pw-box h3 {
+  margin: 0 0 10px;
+}
+.pw-box label {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 13px;
+  color: #555;
+}
+.pw-box input {
+  display: block;
+  width: 260px;
+  margin-top: 4px;
+  padding: 7px 10px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 14px;
+}
+.pw-box .err {
+  color: #c62828;
+  font-size: 13px;
+}
+.pw-box .ok {
+  color: #2e7d32;
+  font-size: 13px;
+}
+.pw-btn {
+  margin-top: 4px;
+  padding: 7px 18px;
+  border: none;
+  border-radius: 4px;
+  background: #2b7de9;
+  color: #fff;
+  cursor: pointer;
+  font-size: 14px;
 }
 </style>

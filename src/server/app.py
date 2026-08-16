@@ -1,8 +1,10 @@
 import sqlite3
 import secrets
+import threading
+import time as _time
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Header, Body
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Header, Body, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -11,6 +13,27 @@ from ..gb2312 import level1_chars
 from ..paths import CONFIG_FILE, DB_FILE, QUEUE, PUZZLE_PIECES, ROOT
 from .. import stage_puzzle as puzzle
 from .. import auth
+
+# 内存滑动窗口限流（单进程 uvicorn 下够用）：接口按 key 限频
+_RATE_LIMIT: dict[str, list[float]] = {}
+_RATE_LIMIT_LOCK = threading.Lock()
+
+
+def _rate_limit(key: str, window: int, max_hits: int) -> bool:
+    """window 秒内同一 key 最多 max_hits 次；超限返回 False"""
+    now = _time.time()
+    with _RATE_LIMIT_LOCK:
+        hits = [t for t in _RATE_LIMIT.get(key, []) if now - t < window]
+        if len(hits) >= max_hits:
+            _RATE_LIMIT[key] = hits
+            return False
+        hits.append(now)
+        _RATE_LIMIT[key] = hits
+        return True
+
+
+def _client_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
 
 
 def _load_config(path: Path | None) -> dict:
@@ -56,6 +79,17 @@ def make_app(config: str | None = None) -> FastAPI:
 
     app = FastAPI(title="zhangzhe-font 拼字工作台")
 
+    # P2-A 补充：multipart 解析前按 Content-Length 预检，防止超大请求体在
+    # 字段/文件读取前即被整体载入内存（上限 = file 2MB + source 6MB + pieces 0.5MB + 余量）
+    MAX_BODY_BYTES = 12 * 1024 * 1024
+
+    @app.middleware("http")
+    async def limit_body_size(request: Request, call_next):
+        cl = request.headers.get("content-length")
+        if cl and cl.isdigit() and int(cl) > MAX_BODY_BYTES:
+            return JSONResponse({"detail": "请求体过大"}, status_code=413)
+        return await call_next(request)
+
     @app.get("/health")
     def health():
         return {"ok": True}
@@ -74,12 +108,12 @@ def make_app(config: str | None = None) -> FastAPI:
         return [{"stage": r["stage"], "status": r["status"], "count": r["n"]} for r in rows]
 
     @app.get("/api/queue")
-    def queue(limit: int = 50, stage: str = "pending"):
+    def queue(limit: int = 50, stage: str = "pending", status: str = "todo"):
         conn = store.connect()
         rows = conn.execute(
             "SELECT char, stage, status, attempts, scores FROM glyphs "
-            "WHERE stage = ? AND status = 'todo' LIMIT ?",
-            (stage, limit),
+            "WHERE stage = ? AND status = ? LIMIT ?",
+            (stage, status, limit),
         ).fetchall()
         conn.close()
         return [dict(r) for r in rows]
@@ -87,7 +121,9 @@ def make_app(config: str | None = None) -> FastAPI:
     # ---------------- 用户 / 会话 ----------------
 
     @app.get("/api/auth/captcha")
-    def captcha():
+    def captcha(request: Request):
+        if not _rate_limit(f"captcha:{_client_ip(request)}", 60, 20):
+            raise HTTPException(status_code=429, detail="请求过于频繁，请稍后再试")
         return auth.new_captcha()
 
     @app.post("/api/auth/register")
@@ -130,8 +166,10 @@ def make_app(config: str | None = None) -> FastAPI:
         return {"user": user}
 
     @app.get("/api/auth/role")
-    def auth_role(email: str = ""):
+    def auth_role(email: str = "", request: Request = None):
         """查询某邮箱是否为配置的管理员邮箱（注册前可用）"""
+        if request and not _rate_limit(f"role:{_client_ip(request)}", 60, 30):
+            raise HTTPException(status_code=429, detail="请求过于频繁，请稍后再试")
         return {"is_admin": email.strip().lower() in auth.admin_emails(cfg)}
 
     # ---------------- 拼字工作台 ----------------
@@ -202,12 +240,28 @@ def make_app(config: str | None = None) -> FastAPI:
                     raise ValueError("图层数据必须是数组")
             except Exception as e:
                 raise HTTPException(status_code=400, detail=f"图层数据无效: {e}")
-        png_data = await file.read()
+        from ..stage_puzzle import MAX_PIECE_BYTES
+
+        async def read_limited(upload: UploadFile, limit: int) -> bytes:
+            """流式受限读取：累计超限立即断，防止大文件全量载入内存（DoS）"""
+            chunks: list[bytes] = []
+            total = 0
+            while True:
+                chunk = await upload.read(65536)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > limit:
+                    raise HTTPException(status_code=413, detail="文件超过大小上限")
+                chunks.append(chunk)
+            return b"".join(chunks)
+
+        png_data = await read_limited(file, MAX_PIECE_BYTES)
         if not png_data:
             raise HTTPException(status_code=400, detail="PNG 文件为空")
         source_png = None
         if source is not None:
-            source_png = await source.read()
+            source_png = await read_limited(source, MAX_PIECE_BYTES * 3)
             if not source_png:
                 raise HTTPException(status_code=400, detail="出处图文件为空")
         try:
@@ -470,10 +524,9 @@ def make_app(config: str | None = None) -> FastAPI:
             if row is None:
                 # 模糊提示：不泄露邮箱是否注册
                 return {"ok": True, "message": "若该账户存在，密码已重置", "temp_password": None}
-            conn.execute(
-                "UPDATE users SET pass_hash = ? WHERE id = ?",
-                (auth.hash_password(temp), row["id"]),
-            )
+        # 临时密码 24h 时效（users.temp_pw_expire），过期需重新重置
+        auth.set_temp_password(email, temp)
+        with store.db() as conn:
             # 清空该用户所有旧会话，防旧 token 劫持
             conn.execute("DELETE FROM sessions WHERE user_id = ?", (row["id"],))
             conn.execute(
@@ -481,6 +534,29 @@ def make_app(config: str | None = None) -> FastAPI:
                 ("", f"reset_password:{email}", admin_user["email"] if admin_user else "", "管理员重置密码"),
             )
         return {"ok": True, "message": "密码已重置", "email": email, "temp_password": temp}
+
+    @app.post("/api/auth/change-password")
+    def change_password(
+        body: dict = Body(...),
+        authorization: str | None = Header(None),
+    ):
+        """登录用户自行修改密码（含临时密码场景）：清临时密码标记 + 其它会话"""
+        user = auth.user_by_token(_bearer(authorization))
+        if not user:
+            raise HTTPException(status_code=401, detail="请先登录")
+        ok, msg = auth.change_password(
+            user["id"],
+            body.get("old_password", ""),
+            body.get("new_password", ""),
+        )
+        if not ok:
+            raise HTTPException(status_code=400, detail=msg)
+        with store.db() as conn:
+            conn.execute(
+                "DELETE FROM sessions WHERE user_id = ? AND token != ?",
+                (user["id"], _bearer(authorization)),
+            )
+        return {"ok": True, "message": msg}
 
     # ---- 前端静态资源 ----
     dist_dir = ROOT / "webui" / "dist"

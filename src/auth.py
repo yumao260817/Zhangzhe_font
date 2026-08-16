@@ -10,6 +10,8 @@ TOKEN_TTL_DAYS = 30
 CAPTCHA_TTL_SECONDS = 300
 LOGIN_MAX_FAIL = 5
 LOGIN_LOCK_MINUTES = 15
+TEMP_PW_TTL_HOURS = 24
+MIN_PASSWORD_LEN = 8
 
 
 def _now_str() -> str:
@@ -133,17 +135,48 @@ def _role_for_email(email: str, cfg: dict) -> str:
     return "user"
 
 
+def set_temp_password(email: str, temp: str) -> bool:
+    """管理员重置：写入临时密码 + 24h 时效。返回用户是否存在。"""
+    with store.db() as conn:
+        row = conn.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()
+        if row is None:
+            return False
+        conn.execute(
+            "UPDATE users SET pass_hash = ?, temp_pw_expire = ? WHERE id = ?",
+            (hash_password(temp), _now_str(), row["id"]),
+        )
+    return True
+
+
+def change_password(user_id: int, old_password: str, new_password: str) -> tuple[bool, str]:
+    """修改密码：验证旧密码，更新并清除临时密码标记（保留当前会话，清其它会话）"""
+    if not new_password or len(new_password) < MIN_PASSWORD_LEN:
+        return False, f"新密码至少 {MIN_PASSWORD_LEN} 位"
+    if old_password == new_password:
+        return False, "新密码不能与旧密码相同"
+    with store.db() as conn:
+        row = conn.execute("SELECT pass_hash FROM users WHERE id = ?", (user_id,)).fetchone()
+        if not row or not verify_password(old_password, row["pass_hash"]):
+            return False, "旧密码不正确"
+        conn.execute(
+            "UPDATE users SET pass_hash = ?, temp_pw_expire = NULL WHERE id = ?",
+            (hash_password(new_password), user_id),
+        )
+    return True, "密码已修改"
+
+
 def register(email: str, password: str, name: str = "", cfg: dict | None = None) -> tuple[bool, str, dict | None]:
     email = (email or "").strip().lower()
     if not email or "@" not in email:
         return False, "邮箱格式不正确", None
-    if not password or len(password) < 6:
-        return False, "密码至少 6 位", None
+    if not password or len(password) < MIN_PASSWORD_LEN:
+        return False, f"密码至少 {MIN_PASSWORD_LEN} 位", None
     conn = store.connect()
     try:
         exists = conn.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()
         if exists:
-            return False, "该邮箱已注册", None
+            # 模糊提示：不区分「已注册」与其他错误，防邮箱枚举
+            return False, "注册失败，请检查邮箱后重试", None
         role = _role_for_email(email, cfg or {})
         cur = conn.execute(
             "INSERT INTO users (email, pass_hash, role, name) VALUES (?, ?, ?, ?)",
@@ -163,6 +196,9 @@ def login(email: str, password: str) -> tuple[bool, str, dict | None]:
         row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
         if not row or not verify_password(password, row["pass_hash"]):
             return False, "邮箱或密码错误", None
+        # 临时密码时效：过期则拒绝（需管理员重新重置）
+        if row["temp_pw_expire"] and row["temp_pw_expire"] < _now_str():
+            return False, "临时密码已过期，请联系管理员重新重置", None
         token = secrets.token_urlsafe(32)
         expires = (datetime.now() + timedelta(days=TOKEN_TTL_DAYS)).strftime("%Y-%m-%d %H:%M:%S")
         conn.execute(
@@ -170,7 +206,8 @@ def login(email: str, password: str) -> tuple[bool, str, dict | None]:
             (token, row["id"], expires),
         )
         conn.commit()
-        return True, "登录成功", {"token": token, "user": _user_dict(row)}
+        must_change = bool(row["temp_pw_expire"])
+        return True, "登录成功", {"token": token, "user": _user_dict(row), "must_change": must_change}
     finally:
         conn.close()
 
