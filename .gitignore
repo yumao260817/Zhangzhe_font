@@ -23,6 +23,18 @@ configs/default.yaml
 # 拼字工作台运行期数据（用户上传部件/候选）
 data/puzzle/
 
+# data 目录下全部图片不入库（手写素材/标准字形/部件等）
+data/**/*.png
+data/**/*.jpg
+data/**/*.jpeg
+data/**/*.gif
+data/**/*.webp
+data/**/*.svg
+data/**/*.bmp
+data/**/*.tif
+data/**/*.tiff
+data/**/*.ico
+
 # 其他工具记忆
 .workbuddy/
 
