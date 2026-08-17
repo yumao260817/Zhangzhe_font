@@ -1,6 +1,10 @@
+import shutil
+from datetime import datetime
+
 import cv2
 import numpy as np
 
+from .font_metadata import setup_names, setup_os2, validate_font
 from .gb2312 import level1_chars
 from .paths import FONTS, PROCESSED
 
@@ -75,7 +79,14 @@ def run(fmt="ttf"):
     glyphs = {}
     glyph_order = [".notdef"]
     cmap = {}
-    glyphs[".notdef"] = TTGlyphPen(None).glyph()
+    # .notdef 必须含简单轮廓（空 .notdef 可能导致 Word/OTS 校验失败）
+    nd_pen = TTGlyphPen(None)
+    nd_pen.moveTo((0, 0))
+    nd_pen.lineTo((0, 128))
+    nd_pen.lineTo((128, 128))
+    nd_pen.lineTo((128, 0))
+    nd_pen.closePath()
+    glyphs[".notdef"] = nd_pen.glyph()
     hand_count = cand_count = 0
     for ch in level1_chars():
         p = PROCESSED / f"{ch}.png"
@@ -108,24 +119,40 @@ def run(fmt="ttf"):
     fb.setupHorizontalMetrics(metrics)
     # 垂直度量：基线在字底，下方留 20% 降部空间，行高合理
     fb.setupHorizontalHeader(ascent=UPEM, descent=-UPEM // 5)
-    fb.setupOS2(
-        usWeightClass=400,
-        usWidthClass=5,
-        fsSelection=0x40,
-        typoAscender=int(UPEM * 0.8),
-        typoDescender=-UPEM // 5,
-        sTypoLineGap=UPEM // 10,
-        usWinAscent=UPEM,
-        usWinDescent=UPEM // 5,
-    )
-    fb.setupNameTable({
-        "familyName": "Zhangzhe",
-        "styleName": "Regular",
-        "uniqueFontIdentifier": "Zhangzhe-Regular",
-        "fullName": "Zhangzhe",
-        "psName": "Zhangzhe-Regular",
-    })
+    setup_os2(fb, UPEM)
+    setup_names(fb)
     fb.setupPost()
-    out = FONTS / "Zhangzhe.ttf"
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out = FONTS / f"Zhangzhe_{ts}.ttf"
     fb.save(str(out))
     print(f"导出完成: 手写 {hand_count} 字 + 人工候选 {cand_count} 字, 共 {len(glyphs)} 字 -> {out}")
+
+    # 二次处理：fontTools 编译 hmtx 时会把尾部相同 advance 合并为 numberOfHMetrics=1
+    # （Word 对 numberOfHMetrics < numGlyphs 的字体有已知兼容 bug），展开为全量记录
+    from fontTools.ttLib import TTFont
+    from fontTools.ttLib.tables.DefaultTable import DefaultTable
+    import struct
+
+    font = TTFont(str(out))
+    num = len(font.getGlyphOrder())
+    raw = struct.pack(">" + "Hh" * num, *[
+        v for gn in font.getGlyphOrder() for v in (font["hmtx"].metrics[gn][0], 0)
+    ])
+    hmtx = DefaultTable("hmtx")
+    hmtx.data = raw
+    font["hmtx"] = hmtx
+    font["hhea"].numberOfHMetrics = num
+    font.save(str(out))
+    print(f"hmtx 展开为全量: numberOfHMetrics={num}")
+
+    # 生成后自检：重新加载并验证，失败即抛错
+    chars = [chr(k) for k in cmap]
+    errors = validate_font(str(out), expected_chars=chars)
+    if errors:
+        raise RuntimeError("字体自检失败:\n" + "\n".join(errors))
+    print("字体自检通过: 表齐全, cmap/name/OS2 一致, fsType=0, CJK Range/CodePage 已声明")
+
+    # 自检通过后同步最新副本为固定文件名（release/安装用）
+    fixed = FONTS / "Zhangzhe.ttf"
+    shutil.copy2(str(out), str(fixed))
+    print(f"已同步固定副本 -> {fixed}")
