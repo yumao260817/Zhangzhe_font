@@ -87,7 +87,17 @@ def run(fmt="ttf"):
     nd_pen.lineTo((128, 0))
     nd_pen.closePath()
     glyphs[".notdef"] = nd_pen.glyph()
-    hand_count = cand_count = 0
+    # 缺字占位字形（空心方块 □）：cmap 命中该 glyph 时 Word 显示方块占位，
+    # 阻止其回退到宋体。不能映射到 .notdef——fontTools 解析时丢弃 gid=0 映射。
+    miss_pen = TTGlyphPen(None)
+    miss_pen.moveTo((256, 256))
+    miss_pen.lineTo((256, UPEM - 256))
+    miss_pen.lineTo((UPEM - 256, UPEM - 256))
+    miss_pen.lineTo((UPEM - 256, 256))
+    miss_pen.closePath()
+    glyphs["zz_missing"] = miss_pen.glyph()
+    glyph_order.append("zz_missing")
+    hand_count = cand_count = notdef_count = 0
     for ch in level1_chars():
         p = PROCESSED / f"{ch}.png"
         if p.exists():
@@ -100,6 +110,9 @@ def run(fmt="ttf"):
         # 缺手写：合并人工审核通过的候选（512 透明 PNG，取 alpha 通道）
         cand_p = approved.get(ch)
         if not cand_p:
+            # 缺字映射到占位字形：cmap 存在即阻止 Word 字体回退（避免静默用宋体替代），显示方块占位
+            cmap[ord(ch)] = "zz_missing"
+            notdef_count += 1
             continue
         from PIL import Image as PILImage
 
@@ -125,7 +138,7 @@ def run(fmt="ttf"):
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     out = FONTS / f"Zhangzhe_{ts}.ttf"
     fb.save(str(out))
-    print(f"导出完成: 手写 {hand_count} 字 + 人工候选 {cand_count} 字, 共 {len(glyphs)} 字 -> {out}")
+    print(f"导出完成: 手写 {hand_count} 字 + 人工候选 {cand_count} 字 + 占位(notdef) {notdef_count} 字, 共 {len(glyphs)} 字形 / cmap {len(cmap)} 项 -> {out}")
 
     # 二次处理：fontTools 编译 hmtx 时会把尾部相同 advance 合并为 numberOfHMetrics=1
     # （Word 对 numberOfHMetrics < numGlyphs 的字体有已知兼容 bug），展开为全量记录

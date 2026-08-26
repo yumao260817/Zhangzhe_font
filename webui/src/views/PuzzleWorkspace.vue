@@ -131,6 +131,15 @@ function dropHandler(e) {
   if (e.dataTransfer && e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files)
 }
 
+// 计算 Blob 的 SHA-256（十六进制），用于出处图内容去重上传
+async function sha256Blob(blob) {
+  const buf = await blob.arrayBuffer()
+  const digest = await crypto.subtle.digest('SHA-256', buf)
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+}
+
 const selected = computed(() => layers.value.find((l) => l.id === selectedId.value) || null)
 
 function updateLayer(next) {
@@ -262,7 +271,26 @@ async function doSubmit() {
     const fd = new FormData()
     fd.append('note', note.value)
     fd.append('file', blob, 'render.png')
-    if (sourceImg.value) fd.append('source', sourceImg.value, 'source.png')
+    if (sourceImg.value) {
+      // 内容寻址去重：同图已在服务器则仅传哈希，省去重复上传字节
+      let useHash = false
+      try {
+        const h = await sha256Blob(sourceImg.value)
+        const ex = await api(`/api/source/exists?hash=${h}`)
+        if (ex.ok) {
+          const ej = await ex.json()
+          useHash = !!ej.exists
+        }
+      } catch (e) {
+        useHash = false
+      }
+      if (useHash) {
+        const h = await sha256Blob(sourceImg.value)
+        fd.append('source_hash', h)
+      } else {
+        fd.append('source', sourceImg.value, 'source.png')
+      }
+    }
     const res = await api(`/api/char/${encodeURIComponent(char.value.trim())}/submit`, { method: 'POST', body: fd })
     const body = await res.json()
     if (!res.ok) throw new Error(body.detail || '导出失败')

@@ -214,6 +214,16 @@ def make_app(config: str | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="手写原迹不存在")
         return FileResponse(str(fp), media_type="image/png")
 
+    @app.get("/api/source/exists")
+    def source_exists(hash: str = "", authorization: str | None = Header(None)):
+        """查询某出处图（内容 SHA-256）是否已在服务器，供前端去重上传。需登录。"""
+        if not auth.user_by_token(_bearer(authorization)):
+            raise HTTPException(status_code=401, detail="请先登录")
+        if not puzzle._is_safe_hash(hash):
+            return {"exists": False}
+        fp = puzzle.PUZZLE_SOURCES / f"{hash}.png"
+        return {"exists": fp.exists()}
+
     @app.post("/api/char/{char}/submit")
     async def submit(
         char: str,
@@ -221,6 +231,7 @@ def make_app(config: str | None = None) -> FastAPI:
         pieces: str = Form(""),
         file: UploadFile = File(...),
         source: UploadFile | None = File(None),
+        source_hash: str | None = Form(None),
         authorization: str | None = Header(None),
     ):
         user = auth.user_by_token(_bearer(authorization))
@@ -267,7 +278,10 @@ def make_app(config: str | None = None) -> FastAPI:
         try:
             # 署名强制使用登录用户，防止伪造
             author = user.get("name") or user["email"]
-            return puzzle.save_candidate(char, layers, author=author, note=note, png_data=png_data, source_png=source_png)
+            return puzzle.save_candidate(
+                char, layers, author=author, note=note,
+                png_data=png_data, source_png=source_png, source_hash=source_hash,
+            )
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:
@@ -425,6 +439,31 @@ def make_app(config: str | None = None) -> FastAPI:
             if not user or (user["email"] != author and (user.get("name") or "") != author):
                 raise HTTPException(status_code=403, detail="需要管理员权限")
         return FileResponse(str(svg), media_type="image/svg+xml")
+
+    @app.get("/api/candidates/{uid}/source")
+    def cand_source(uid: str, token: str = "", authorization: str | None = Header(None)):
+        from .. import store as _s
+
+        conn = _s.connect()
+        try:
+            row = conn.execute(
+                "SELECT status, author, source_path FROM candidates WHERE uid = ?", (uid,)
+            ).fetchone()
+        finally:
+            conn.close()
+        if row is None:
+            raise HTTPException(status_code=404, detail="候选不存在")
+        status, author, sp = row["status"], row["author"], row["source_path"]
+        if status != "approved" and not _review_ok(token, authorization, cfg):
+            user = auth.user_by_token(_bearer(authorization)) or auth.user_by_token(token)
+            if not user or (user["email"] != author and (user.get("name") or "") != author):
+                raise HTTPException(status_code=403, detail="需要管理员权限")
+        if not sp:
+            raise HTTPException(status_code=404, detail="无出处图")
+        fp = Path(sp)
+        if not fp.exists():
+            raise HTTPException(status_code=404, detail="出处图不存在")
+        return FileResponse(str(fp), media_type="image/png")
 
     @app.get("/api/candidates/{uid}/project")
     def cand_project(uid: str, token: str = "", authorization: str | None = Header(None)):

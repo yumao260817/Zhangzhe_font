@@ -56,6 +56,14 @@ def setup_os2(fb: FontBuilder, upem: int) -> None:
     # 按实际 cmap 自动重算，禁止固定 0 或手写死值
     os2.recalcUnicodeRanges(fb.font, pruneOnly=False)
     os2.recalcCodePageRanges(fb.font, pruneOnly=False)
+    # 修正 Code Page Range：fontTools 的 calcCodePageRanges 用「ㄅ」触发 bit 18（简体
+    # GB2312/GBK）、用「央」触发 bit 20（繁体 Big5）。本字体是简体字库（GB2312 一级，
+    # 无注音符号），会被误判为仅支持繁体——Windows/Word 据此在 IME 合成时回退宋体。
+    # 与系统字体对齐：SimSun/雅黑均为 bit 18。显式去掉繁体位、补上简体位。
+    bits = os2.getCodePageRanges()
+    bits.discard(20)  # Big5 繁体：本字体不含繁体字
+    bits.add(18)      # GB2312/GBK 简体中文
+    os2.setCodePageRanges(bits)
 
 
 def setup_names(fb: FontBuilder) -> None:
@@ -100,8 +108,10 @@ def validate_font(path: str, expected_chars=None) -> list:
                 errors.append(f"cmap 缺字 {len(missing)} 个: {''.join(missing[:20])}")
         if not errors and font.getGlyphOrder() and ".notdef" not in font.getGlyphOrder():
             errors.append("缺少 .notdef")
-        if font.getGlyphOrder() and not all(g.startswith("uni") for g in font.getGlyphOrder()[1:]):
-            bad = [g for g in font.getGlyphOrder()[1:] if not g.startswith("uni")][:10]
+        if font.getGlyphOrder() and not all(
+            g.startswith("uni") or g == "zz_missing" for g in font.getGlyphOrder()[1:]
+        ):
+            bad = [g for g in font.getGlyphOrder()[1:] if not (g.startswith("uni") or g == "zz_missing")][:10]
             errors.append(f"glyph 命名不规范（应 uniXXXX）: {bad}")
 
     # 结构一致性（Word 实例化字体的硬性校验）
@@ -141,8 +151,10 @@ def validate_font(path: str, expected_chars=None) -> list:
     if not any(r in ranges for r in (59, 47, 74)):  # CJK 相关位
         errors.append(f"Unicode Range 未声明 CJK: {sorted(ranges)}")
     cpr = os2.getCodePageRanges()
-    if not any(r in cpr for r in (20, 21)):  # GB2312/GBK / Big5
-        errors.append(f"Code Page Range 未声明中文: {sorted(cpr)}")
+    if 18 not in cpr:  # bit 18 = GB2312/GBK 简体中文（Word/IME 判定简体中文支持的关键位）
+        errors.append(f"Code Page Range 未声明简体中文(bit18): {sorted(cpr)}")
+    if 20 in cpr:  # bit 20 = Big5 繁体，本字体为简体字库不应声明
+        errors.append(f"Code Page Range 误声明繁体(bit20): {sorted(cpr)}")
 
     name = font["name"]
     if name.getDebugName(1) != FAMILY:

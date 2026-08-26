@@ -59,6 +59,14 @@ function svgUrl(uid) {
   return `/api/candidates/${uid}/svg${authQuery()}`
 }
 
+function sourceUrl(uid) {
+  return `/api/candidates/${uid}/source${authQuery()}`
+}
+
+function onImgErr(e) {
+  e.target.style.display = 'none'
+}
+
 async function act(uid, action) {
   const note = window.prompt(action === 'reject' ? '驳回原因（必填）：' : '审批注记（可选）：', '')
   if (action === 'reject' && !note?.trim()) {
@@ -117,7 +125,16 @@ onMounted(load)
     <p v-else-if="!loading && !items.length" class="empty">列表为空</p>
     <div v-else class="grid">
       <div v-for="c in items" :key="c.uid" class="card">
-        <img :src="imgUrl(c.uid)" :alt="c.char" />
+        <div class="imgs">
+          <div class="img-wrap">
+            <span class="cap">候选</span>
+            <img :src="imgUrl(c.uid)" :alt="c.char" @error="onImgErr" />
+          </div>
+          <div v-if="c.source === 'original'" class="img-wrap">
+            <span class="cap">出处原图</span>
+            <img :src="sourceUrl(c.uid)" :alt="c.char + ' 出处'" @error="onImgErr" />
+          </div>
+        </div>
         <div class="info">
           <div class="big">
             「{{ c.char }}」
@@ -196,7 +213,24 @@ onMounted(load)
   padding: 10px;
   background: #fff;
 }
-.card img {
+.imgs {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.img-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.img-wrap .cap {
+  font-size: 11px;
+  color: #888;
+  text-align: center;
+  margin-bottom: 2px;
+}
+.img-wrap img {
   width: 100%;
   aspect-ratio: 1;
   object-fit: contain;

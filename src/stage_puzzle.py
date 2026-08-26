@@ -1,3 +1,4 @@
+import hashlib
 import json
 import uuid
 from io import BytesIO
@@ -13,6 +14,14 @@ from . import store
 LEVEL1 = set(level1_chars())
 GRID = 512
 MAX_PIECE_BYTES = 2 * 1024 * 1024  # 单部件/单图 2MB 上限
+
+
+def _sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _is_safe_hash(h: str) -> bool:
+    return isinstance(h, str) and len(h) == 64 and all(c in "0123456789abcdefABCDEF" for c in h)
 
 
 def _imread_bytes(data: bytes) -> Image.Image:
@@ -122,9 +131,12 @@ def save_candidate(
     note: str = "",
     png_data: bytes = b"",
     source_png: bytes | None = None,
+    source_hash: str | None = None,
 ) -> dict:
     """校验 + 存项目与成品，入库 pending。png_data 为前端所见即所得渲染的合并图（必填）。
-    source_png 为「上传出处」整字证据图：提供则标记 original（原字），否则 composed（拼字）。"""
+    source_png 为「上传出处」整字证据图原始字节：提供则按内容 SHA-256 存储（内容寻址，同图只存一份）。
+    source_hash 为已存在于服务器的出处图哈希：仅传哈希即可复用，省去重复上传字节。
+    二者皆无则标记 composed（拼字）。"""
     if char not in LEVEL1:
         raise ValueError(f"目标字不在一级字集: {char}")
     if len(pieces) > 64:
@@ -145,17 +157,30 @@ def save_candidate(
     if float((alpha > 10).sum()) / alpha.size < 0.01:
         raise ValueError("候选图几乎全透明，请确认部件在画布内")
     source = "composed"
-    source_path = None
+    src_p: Path | None = None
+    written: list[Path] = []
     if source_png:
         if len(source_png) > MAX_PIECE_BYTES * 3:
             raise ValueError("出处图超过大小上限")
         try:
-            src_img = _imread_bytes(source_png)
+            _imread_bytes(source_png)
         except Exception:
             raise ValueError("出处图不是有效图片")
-        if src_img.size != (GRID, GRID):
-            # 出处图为证据，不强制 512×512，但校验可解码即可；若恰好 512 则原样
-            pass
+        # 内容寻址：同源图只存一份，避免不同字重复上传同一出处图浪费存储
+        h = _sha256(source_png)
+        src_p = PUZZLE_SOURCES / f"{h}.png"
+        src_p.parent.mkdir(parents=True, exist_ok=True)
+        existed = src_p.exists()
+        if not existed:
+            src_p.write_bytes(source_png)
+            written.append(src_p)  # 仅本次新建的哈希图参与失败回滚（共享图不删）
+        source = "original"
+    elif source_hash:
+        if not _is_safe_hash(source_hash):
+            raise ValueError("出处哈希格式无效")
+        src_p = PUZZLE_SOURCES / f"{source_hash}.png"
+        if not src_p.exists():
+            raise ValueError("该出处图在服务器不存在，请改为直接上传图片")
         source = "original"
     uid = uuid.uuid4().hex[:12]
     cand_dir = PUZZLE_CANDIDATES / char
@@ -171,17 +196,11 @@ def save_candidate(
     svg_p = cand_dir / f"{uid}.svg"
     proj_p = cand_dir / f"{uid}.json"
 
-    written: list[Path] = []
     try:
         png_p.write_bytes(png)
         written.append(png_p)
         svg_p.write_text(svg, encoding="utf-8")
         written.append(svg_p)
-        if source == "original":
-            src_p = PUZZLE_SOURCES / f"{uid}.png"
-            src_p.parent.mkdir(parents=True, exist_ok=True)
-            src_p.write_bytes(source_png)
-            written.append(src_p)
         proj_p.write_text(
             json.dumps(
                 {
