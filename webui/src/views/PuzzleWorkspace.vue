@@ -18,6 +18,8 @@ const loading = ref(false)
 const message = ref('')
 const exporting = ref(false)
 const pendingChars = ref([])
+const charApproved = ref([])
+const light = ref(null)
 const sourceImg = ref(null)
 const sourceName = ref('')
 const confirmModal = ref(false)
@@ -222,8 +224,32 @@ watch(
 
 onMounted(() => {
   loadPending()
+  loadCharApproved(char.value)
   document.addEventListener('pointerdown', onDocPointerDown)
 })
+
+watch(char, (v) => loadCharApproved(v))
+
+async function loadCharApproved(ch) {
+  charApproved.value = []
+  if (!ch || !ch.trim()) return
+  try {
+    const res = await api(`/api/char/${encodeURIComponent(ch.trim())}/candidates?status=approved`)
+    if (!res.ok) return
+    charApproved.value = (await res.json()) || []
+  } catch (e) {
+    charApproved.value = []
+  }
+}
+
+function approvedImg(uid) {
+  const t = localStorage.getItem('zz_auth_token') || ''
+  return `/api/candidates/${uid}/png${t ? '?token=' + encodeURIComponent(t) : ''}`
+}
+
+function enlarge(src) {
+  light.value = src
+}
 onBeforeUnmount(() => {
   document.removeEventListener('pointerdown', onDocPointerDown)
 })
@@ -413,6 +439,24 @@ function goGallery() {
       <button v-for="c in pendingChars" :key="c.char" class="pb-char" @click="usePending(c.char)">
         {{ c.char }}
       </button>
+    </div>
+
+    <section v-if="charApproved.length" class="approved-gallery">
+      <h3 class="ag-title">已收录·「{{ char }}」</h3>
+      <div class="ag-grid">
+        <div v-for="a in charApproved" :key="a.uid" class="ag-card" @click="enlarge(approvedImg(a.uid))">
+          <img :src="approvedImg(a.uid)" :alt="a.char" loading="lazy" />
+          <div class="ag-meta">
+            <span class="ag-char">「{{ a.char }}」</span>
+            <span class="ag-author">{{ a.author || '佚名' }}</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div v-if="light" class="lightbox" @click="light = null">
+      <img :src="light" />
+      <span class="close">点击任意处关闭</span>
     </div>
   </div>
 </template>
@@ -619,5 +663,71 @@ button.danger {
   display: flex;
   gap: 10px;
   justify-content: center;
+}
+.approved-gallery {
+  width: 100%;
+  max-width: 1100px;
+  margin: 24px auto 0;
+  padding: 16px 20px 28px;
+  border-top: 1px solid #e6e6e6;
+}
+.ag-title {
+  font-size: 15px;
+  margin: 0 0 12px;
+  color: #333;
+}
+.ag-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 10px;
+}
+.ag-card {
+  border: 1px solid #ececec;
+  border-radius: 6px;
+  padding: 6px;
+  background: #fff;
+  text-align: center;
+  cursor: zoom-in;
+}
+.ag-card img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: contain;
+  background: linear-gradient(45deg, #f2f2f2 25%, transparent 25%, transparent 75%, #f2f2f2 75%),
+    linear-gradient(45deg, #f2f2f2 25%, #fff 25%, #fff 75%, #f2f2f2 75%);
+  background-size: 14px 14px;
+  border-radius: 4px;
+}
+.ag-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 4px;
+  font-size: 11px;
+}
+.ag-char { font-weight: 700; color: #222; }
+.ag-author { color: #999; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 56px; }
+.lightbox {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  cursor: zoom-out;
+}
+.lightbox img {
+  max-width: 90vw;
+  max-height: 85vh;
+  background: #fff;
+  border-radius: 6px;
+}
+.lightbox .close {
+  color: #fff;
+  margin-top: 12px;
+  font-size: 13px;
+  opacity: 0.8;
 }
 </style>
