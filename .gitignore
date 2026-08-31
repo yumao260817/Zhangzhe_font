@@ -43,6 +43,9 @@ data/**/*.ico
 # 其他工具记忆
 .workbuddy/
 
+# 分析产物（可随时重建，不入库）
+third_party/GB2312-ids/components_analysis.txt
+
 # AI Agent 相关文件（一律不提交）
 AGENTS.md
 .opencode/
